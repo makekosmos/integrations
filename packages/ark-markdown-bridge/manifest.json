@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "id": "ark-markdown-bridge",
+  "name": "ARK Markdown Bridge",
+  "description": "Двунаправленный мост канонических заметок ARK и Markdown-файлов.",
+  "version": "0.1.0",
+  "kind": "bridge",
+  "engine_api": ">=1.0.0",
+  "entrypoint": "ark-markdown-bridge.exe",
+  "icon": "icon.png",
+  "publisher": "kosmos",
+  "permissions": [
+    {
+      "capability": "ark.read",
+      "scopes": ["list_objects", "get_object"]
+    },
+    {
+      "capability": "ark.write",
+      "scopes": ["upsert_object", "external_refs.upsert"]
+    },
+    {
+      "capability": "filesystem.read",
+      "scopes": []
+    },
+    {
+      "capability": "filesystem.write",
+      "scopes": []
+    }
+  ],
+  "targets": [
+    {
+      "runtime": "worker",
+      "os": ["windows"],
+      "arch": ["x86_64"]
+    }
+  ],
+  "data": {
+    "access": [
+      {
+        "type": "com.kosmos.note",
+        "versions": "^1.0.0",
+        "actions": ["read", "create", "update"],
+        "fields": {
+          "read": ["title", "body"],
+          "write": ["title", "body"]
+        }
+      }
+    ],
+    "defines": [],
+    "mappings": [
+      {
+        "type": "com.kosmos.note",
+        "versions": "^1.0.0",
+        "direction": "bidirectional-sync",
+        "fidelity": "lossless"
+      }
+    ]
+  }
+}

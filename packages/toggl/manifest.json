@@ -1,0 +1,73 @@
+{
+  "schema_version": 2,
+  "id": "com.kosmos.toggl",
+  "name": "Toggl Track",
+  "description": "Imports Toggl Track time entries into ARK.",
+  "version": "0.1.0",
+  "kind": "source",
+  "engine_api": ">=1.0.0",
+  "entrypoint": "toggl-worker.exe",
+  "icon": "icon.png",
+  "publisher": "kosmos",
+  "permissions": [
+    {
+      "capability": "network",
+      "scopes": ["https://api.track.toggl.com/"]
+    },
+    {
+      "capability": "ark.write",
+      "scopes": ["upsert_object_type", "upsert_object", "delete_object", "set_sync_kv"]
+    },
+    {
+      "capability": "ark.read",
+      "scopes": ["get_sync_kv"]
+    }
+  ],
+  "targets": [
+    {
+      "runtime": "worker",
+      "os": ["windows"]
+    }
+  ],
+  "data": {
+    "access": [
+      {
+        "type": "time_entry_obj",
+        "versions": "*",
+        "actions": ["create", "update", "delete"],
+        "fields": {
+          "read": [],
+          "write": []
+        }
+      }
+    ],
+    "defines": [],
+    "mappings": [
+      {
+        "type": "time_entry_obj",
+        "versions": "*",
+        "direction": "import",
+        "fidelity": "lossless"
+      }
+    ]
+  },
+  "integration": {
+    "settings": [
+      {
+        "key": "api_token",
+        "label": "API-токен",
+        "kind": "secret",
+        "description": "API-токен Toggl Track из профиля пользователя.",
+        "required": true,
+        "injection": {
+          "kind": "basic",
+          "origins": ["https://api.track.toggl.com/"],
+          "password": "api_token"
+        }
+      }
+    ],
+    "schedule": {
+      "interval_seconds": 3600
+    }
+  }
+}

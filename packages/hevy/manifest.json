@@ -1,0 +1,73 @@
+{
+  "schema_version": 2,
+  "id": "com.kosmos.hevy",
+  "name": "Hevy",
+  "description": "Imports Hevy workouts into ARK.",
+  "version": "0.1.0",
+  "kind": "source",
+  "engine_api": ">=1.0.0",
+  "entrypoint": "hevy-worker.exe",
+  "icon": "icon.png",
+  "publisher": "kosmos",
+  "permissions": [
+    {
+      "capability": "network",
+      "scopes": ["https://api.hevyapp.com/"]
+    },
+    {
+      "capability": "ark.write",
+      "scopes": ["upsert_object_type", "upsert_object", "delete_object", "set_sync_kv"]
+    },
+    {
+      "capability": "ark.read",
+      "scopes": ["get_sync_kv"]
+    }
+  ],
+  "targets": [
+    {
+      "runtime": "worker",
+      "os": ["windows"]
+    }
+  ],
+  "data": {
+    "access": [
+      {
+        "type": "workout_obj",
+        "versions": "*",
+        "actions": ["create", "update", "delete"],
+        "fields": {
+          "read": [],
+          "write": []
+        }
+      }
+    ],
+    "defines": [],
+    "mappings": [
+      {
+        "type": "workout_obj",
+        "versions": "*",
+        "direction": "import",
+        "fidelity": "lossless"
+      }
+    ]
+  },
+  "integration": {
+    "settings": [
+      {
+        "key": "api_key",
+        "label": "API-ключ",
+        "kind": "secret",
+        "description": "Ключ API Hevy из настроек разработчика.",
+        "required": true,
+        "injection": {
+          "kind": "header",
+          "origins": ["https://api.hevyapp.com/"],
+          "name": "api-key"
+        }
+      }
+    ],
+    "schedule": {
+      "interval_seconds": 21600
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "source",
+    "account",
+    "stream",
+    "cursor",
+    "sha256",
+    "chunk",
+    "chunks",
+    "size",
+    "schemaVersion"
+  ],
+  "properties": {
+    "source": { "const": "huawei-health" },
+    "account": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "stream": { "type": "string", "minLength": 1 },
+    "cursor": { "type": "integer", "minimum": 0 },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "chunk": { "type": "integer", "minimum": 0 },
+    "chunks": { "type": "integer", "minimum": 1 },
+    "size": { "type": "integer", "minimum": 1 },
+    "schemaVersion": { "const": 1 }
+  },
+  "additionalProperties": true
+}

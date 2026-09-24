@@ -1,0 +1,102 @@
+{
+  "schema_version": 2,
+  "id": "com.kosmos.leetcode",
+  "name": "LeetCode",
+  "description": "Imports LeetCode submissions and progress into ARK.",
+  "version": "0.1.0",
+  "kind": "source",
+  "engine_api": ">=1.0.0",
+  "entrypoint": "leetcode-worker.exe",
+  "icon": "icon.png",
+  "publisher": "kosmos",
+  "permissions": [
+    {
+      "capability": "network",
+      "scopes": ["https://leetcode.com/"]
+    },
+    {
+      "capability": "ark.write",
+      "scopes": ["upsert_object_type", "upsert_object", "set_sync_kv"]
+    },
+    {
+      "capability": "ark.read",
+      "scopes": ["list_objects", "get_sync_kv"]
+    }
+  ],
+  "targets": [
+    {
+      "runtime": "worker",
+      "os": ["windows"]
+    }
+  ],
+  "data": {
+    "access": [
+      {
+        "type": "coding_submission_obj",
+        "versions": "*",
+        "actions": ["read", "create", "update"],
+        "fields": {
+          "read": [],
+          "write": []
+        }
+      },
+      {
+        "type": "coding_profile_obj",
+        "versions": "*",
+        "actions": ["create", "update"],
+        "fields": {
+          "read": [],
+          "write": []
+        }
+      }
+    ],
+    "defines": [],
+    "mappings": [
+      {
+        "type": "coding_submission_obj",
+        "versions": "*",
+        "direction": "import",
+        "fidelity": "lossless"
+      },
+      {
+        "type": "coding_profile_obj",
+        "versions": "*",
+        "direction": "import",
+        "fidelity": "lossless"
+      }
+    ]
+  },
+  "integration": {
+    "settings": [
+      {
+        "key": "session",
+        "label": "Сессия LeetCode",
+        "kind": "secret",
+        "description": "Сессионные cookies LeetCode.",
+        "required": true,
+        "injection": {
+          "kind": "cookies",
+          "origins": ["https://leetcode.com/"],
+          "method": "post_json",
+          "headers": {
+            "origin": "https://leetcode.com",
+            "referer": "https://leetcode.com/progress/"
+          },
+          "header_from_cookie": {
+            "cookie": "csrftoken",
+            "header": "x-csrftoken"
+          }
+        }
+      }
+    ],
+    "login": {
+      "start_url": "https://leetcode.com/accounts/login/",
+      "completion_url": "https://leetcode.com/",
+      "allowed_cookie_names": ["LEETCODE_SESSION", "csrftoken"],
+      "secret_setting": "session"
+    },
+    "schedule": {
+      "interval_seconds": 86400
+    }
+  }
+}

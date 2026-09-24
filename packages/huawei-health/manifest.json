@@ -1,0 +1,104 @@
+{
+  "schema_version": 2,
+  "id": "com.kosmos.huawei-health",
+  "name": "Huawei Health",
+  "description": "Imports Huawei Health archive data into ARK.",
+  "version": "0.1.0",
+  "kind": "source",
+  "engine_api": ">=1.0.0",
+  "entrypoint": "huawei-health-worker.exe",
+  "icon": "icon.png",
+  "publisher": "kosmos",
+  "permissions": [
+    {
+      "capability": "network",
+      "scopes": [
+        "https://healthdata.dbankcloud.cn/",
+        "https://sportdata-dra.things.dbankcloud.com/",
+        "https://sportdata-dre.things.dbankcloud.com/",
+        "https://sportdata-drru.things.dbankcloud.ru/"
+      ]
+    },
+    {
+      "capability": "ark.write",
+      "scopes": ["upsert_object_type", "upsert_object", "set_sync_kv"]
+    },
+    {
+      "capability": "ark.read",
+      "scopes": ["get_sync_kv"]
+    }
+  ],
+  "targets": [
+    {
+      "runtime": "worker",
+      "os": ["windows"]
+    }
+  ],
+  "data": {
+    "access": [
+      {
+        "type": "com.kosmos.huawei-health.archive",
+        "versions": "^1.0.0",
+        "actions": ["create", "update"],
+        "fields": {
+          "read": [],
+          "write": []
+        }
+      }
+    ],
+    "defines": [
+      {
+        "type": "com.kosmos.huawei-health.archive",
+        "version": "1.0.0",
+        "schema": "schemas/archive.schema.json"
+      }
+    ],
+    "mappings": [
+      {
+        "type": "com.kosmos.huawei-health.archive",
+        "versions": "*",
+        "direction": "import",
+        "fidelity": "lossless"
+      }
+    ]
+  },
+  "integration": {
+    "settings": [
+      {
+        "key": "session",
+        "label": "Сессия Huawei Health",
+        "kind": "secret",
+        "description": "Секретная сессия Huawei Health, полученная через вход Huawei.",
+        "required": true,
+        "injection": {
+          "kind": "json",
+          "origins": [
+            "https://healthdata.dbankcloud.cn/",
+            "https://sportdata-dra.things.dbankcloud.com/",
+            "https://sportdata-dre.things.dbankcloud.com/",
+            "https://sportdata-drru.things.dbankcloud.ru/"
+          ],
+          "body_fields": {
+            "token": "accessToken"
+          },
+          "header_fields": {
+            "x-huid": "uid"
+          },
+          "headers": {
+            "x-version": "and_health_16.1.6.320"
+          }
+        }
+      }
+    ],
+    "login": {
+      "start_url": "https://oauth-login.cloud.huawei.com/oauth2/v3/authorize",
+      "completion_url": "hms://redirect_url",
+      "allowed_cookie_names": [],
+      "secret_setting": "session",
+      "code_exchange": "huawei_health"
+    },
+    "schedule": {
+      "interval_seconds": 86400
+    }
+  }
+}
