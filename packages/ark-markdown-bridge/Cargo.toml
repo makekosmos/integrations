@@ -13,7 +13,12 @@ path = "src/main.rs"
 [dependencies]
 base64 = "0.22"
 chrono = "0.4"
-kepler-backend = { path = "../../runtime" }
+# Worker-facing protocol surface (BridgeStatus) lives in the cortex repo.
+# NOTE: the pinned rev is on branch chore/worker-protocol-crate and only
+# resolves once that branch lands on the shared cortex remote. Until then,
+# verify locally with a temporary `[patch."https://github.com/makekosmos/cortex"]`
+# pointing at a cortex checkout that contains the commit.
+kosmos-package-protocol = { git = "https://github.com/makekosmos/cortex", rev = "7d99757cb8f1b6d67b8dbae4a1ca2782ddd7d916" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
