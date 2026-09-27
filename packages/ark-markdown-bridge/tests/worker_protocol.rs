@@ -2,6 +2,7 @@
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
+use sha2::Digest as _;
 use std::{
     io::{BufRead, BufReader, Write},
     process::{Command, Stdio},
@@ -606,6 +607,97 @@ fn divergent_untracked_file_conflicts_instead_of_overwriting() {
         }
     }
     assert!(saw_conflict_write, "no conflict sibling write observed");
+
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.stop","generation":1,"reason":"test"})
+    )
+    .unwrap();
+    input.flush().unwrap();
+    assert!(child
+        .wait_timeout(Duration::from_secs(5))
+        .unwrap()
+        .is_some());
+}
+
+#[test]
+fn missing_object_deletes_the_verified_file_not_a_stale_path() {
+    // The recorded projection path can go stale while the bridge is offline
+    // (vault restored, file renamed and the ARK object removed in the same
+    // window). Deletion must target the file whose content was actually
+    // verified, not the recorded path.
+    let temp = tempfile::tempdir().unwrap();
+    let vault = temp.path().join("vault");
+    let state_root = temp.path().join("state");
+    std::fs::create_dir(&vault).unwrap();
+    std::fs::create_dir(&state_root).unwrap();
+    let vault_root = vault.to_string_lossy().into_owned();
+    let state_root = state_root.to_string_lossy().into_owned();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ark-markdown-bridge"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    writeln!(input, "{}", json!({"method":"worker.bootstrap","package_id":"ark-markdown-bridge","version":"1.0.0","hash":"a","pid":1,"api_version":1,"generation":1,"correlation_id":"test","token":"token","bridge_config":{"vault_root":vault_root,"state_root":state_root,"selected_types":["com.kosmos.note"],"editable_fields":["title","body"],"readonly_fields":[]}})).unwrap();
+    input.flush().unwrap();
+    assert_eq!(next(&mut output)["method"], "worker.hello");
+
+    let content = "---\nark_id: \"note-1\"\nark_type: \"com.kosmos.note\"\nark_version: \"1.0.0\"\nbridge_version: 1\ntitle: \"One\"\n---\n\nBody\n";
+    let file_hash = format!("{:x}", sha2::Sha256::digest(content.as_bytes()));
+    let state = json!({"records":{"note-1":{"path":"Old-note-1.md","file_hash":file_hash,"ark_hash":"ark","conflict":null}},"last_sync":null,"conflict_count":0,"last_conflict_at":null});
+
+    let state_read = call(&mut output);
+    assert_eq!(state_read["operation"], "filesystem.read");
+    reply(
+        &mut input,
+        &state_read,
+        true,
+        json!({"bytes":STANDARD.encode(state.to_string().as_bytes())}),
+    );
+    let poll = call(&mut output);
+    reply(
+        &mut input,
+        &poll,
+        true,
+        json!([{ "name":"Renamed.md", "kind":"file", "size": 80, "modified_ms": 1 }]),
+    );
+    let list = call(&mut output);
+    reply(
+        &mut input,
+        &list,
+        true,
+        json!([{ "name":"Renamed.md", "kind":"file", "size": 80, "modified_ms": 1 }]),
+    );
+    let file = call(&mut output);
+    assert_eq!(file["operation"], "filesystem.read");
+    reply(
+        &mut input,
+        &file,
+        true,
+        json!({"bytes":STANDARD.encode(content.as_bytes())}),
+    );
+    let ark = call(&mut output);
+    assert_eq!(ark["operation"], "ark.read");
+    reply(&mut input, &ark, true, json!([]));
+
+    let deletion = call(&mut output);
+    assert_eq!(deletion["operation"], "filesystem.delete");
+    assert_eq!(
+        deletion["params"]["path"],
+        format!("{}{}Renamed.md", vault_root, std::path::MAIN_SEPARATOR),
+        "must delete the file whose content was verified, not the stale recorded path"
+    );
+    reply(&mut input, &deletion, true, Value::Null);
+    let provenance = call(&mut output);
+    assert_eq!(provenance["operation"], "ark.write");
+    assert_eq!(provenance["params"]["params"]["state"], "missing");
+    reply(&mut input, &provenance, true, Value::Null);
+    let state_write = call(&mut output);
+    reply(&mut input, &state_write, true, Value::Null);
 
     writeln!(
         input,
