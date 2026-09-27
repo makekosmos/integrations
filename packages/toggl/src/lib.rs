@@ -30,6 +30,19 @@ pub fn before_cursor(entries: &[Value]) -> Option<String> {
         .map(|value| (value - ChronoDuration::milliseconds(1)).to_rfc3339())
 }
 
+/// `before` cursors keep the offset of whichever entry produced them, so
+/// lexicographic RFC3339 order is not chronological order. Compare instants.
+pub fn cursor_stalled(current: &str, next: &str) -> bool {
+    match (
+        DateTime::parse_from_rfc3339(current),
+        DateTime::parse_from_rfc3339(next),
+    ) {
+        (Ok(current), Ok(next)) => current <= next,
+        // An unparseable cursor cannot be trusted to make progress: stop.
+        _ => true,
+    }
+}
+
 pub fn encode_query_value(value: &str) -> String {
     value
         .bytes()
@@ -103,6 +116,23 @@ mod tests {
             before_cursor(&[entry]),
             Some("2026-07-17T09:59:59.999+00:00".into())
         );
+    }
+
+    #[test]
+    fn cursor_progress_compares_instants_across_offsets() {
+        // Next instant (08:30Z) is earlier than current (10:00Z): real
+        // progress, keep paging even though the text sorts higher.
+        assert!(!cursor_stalled(
+            "2026-07-17T10:00:00+00:00",
+            "2026-07-17T10:30:00+02:00"
+        ));
+        // Next instant (13:00Z) moved forwards despite sorting lower as text:
+        // no progress, stop instead of requesting forever.
+        assert!(cursor_stalled(
+            "2026-07-17T08:59:59.999+00:00",
+            "2026-07-17T08:00:00-05:00"
+        ));
+        assert!(cursor_stalled("garbage", "2026-07-17T08:00:00Z"));
     }
 
     #[test]
