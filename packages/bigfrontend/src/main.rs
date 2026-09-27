@@ -182,7 +182,7 @@ fn sync(client: &mut Client<'_>, username: &str) -> Result<(), WorkerError> {
     )?;
     for item in items {
         if cutoff.is_some_and(|at| {
-            kosmos_bigfrontend_worker::timestamp_for_cutoff(item)
+            kosmos_bigfrontend_worker::timestamp_for_cutoff(&item["createdAt"])
                 .is_some_and(|item_at| item_at < at)
         }) {
             continue;
