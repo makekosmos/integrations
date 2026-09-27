@@ -140,6 +140,10 @@ fn sync(client: &mut Client<'_>) -> Result<(), WorkerError> {
         .sync_value()?
         .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
         .map(|value| value.timestamp());
+    // The stored cursor is the read boundary of this sync, not its write
+    // time: capture it before pagination so entries updated while the sync
+    // runs are observed again instead of skipped forever.
+    let now = Utc::now().to_rfc3339();
     let mut before: Option<String> = None;
     let mut seen = HashSet::new();
     let mut entries = Vec::new();
@@ -184,7 +188,6 @@ fn sync(client: &mut Client<'_>) -> Result<(), WorkerError> {
         }
         before = Some(next);
     }
-    let now = Utc::now().to_rfc3339();
     client.ark_write(
         "upsert_object_type",
         json!({"object_type": {
@@ -211,10 +214,7 @@ fn sync(client: &mut Client<'_>) -> Result<(), WorkerError> {
             )?;
         }
     }
-    client.ark_write(
-        "set_sync_kv",
-        json!({"key":SYNC_KEY,"value":Utc::now().to_rfc3339()}),
-    )?;
+    client.ark_write("set_sync_kv", json!({"key":SYNC_KEY,"value":now}))?;
     Ok(())
 }
 

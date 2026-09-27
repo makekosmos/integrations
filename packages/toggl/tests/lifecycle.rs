@@ -85,3 +85,63 @@ fn uses_only_opaque_handle_and_writes_time_entry() {
     input.flush().unwrap();
     assert!(worker.wait().unwrap().success());
 }
+
+#[test]
+fn incremental_cursor_is_the_read_boundary_not_write_time() {
+    let mut worker = Command::new(env!("CARGO_BIN_EXE_toggl-worker"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = worker.stdin.take().unwrap();
+    let mut output = BufReader::new(worker.stdout.take().unwrap());
+    let handle = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    writeln!(input, "{}", json!({"method":"worker.bootstrap","package_id":"com.kosmos.toggl","version":"0.1.0","hash":"h","pid":42,"api_version":1,"generation":3,"correlation_id":"c","token":"t","integration":{"settings":[],"values":{},"secret_handles":{"api_token":handle},"schedule":{"interval_seconds":3600}}})).unwrap();
+    input.flush().unwrap();
+    assert_eq!(next(&mut output)["method"], "worker.hello");
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.run","generation":3,"run_id":"run-2"})
+    )
+    .unwrap();
+    input.flush().unwrap();
+    let state = next(&mut output);
+    assert_eq!(state["operation"], "ark.read");
+    reply(&mut input, &state, json!("2026-09-26T00:00:00Z"));
+    let entries = next(&mut output);
+    assert_eq!(entries["operation"], "network.fetch");
+    assert!(entries["params"]["url"]
+        .as_str()
+        .unwrap()
+        .contains("/api/v9/me/time_entries?since="));
+    // The entries snapshot is taken now; the stored cursor must not move
+    // past this instant or updates landing in between are lost.
+    let snapshot_at = std::time::SystemTime::now();
+    reply(
+        &mut input,
+        &entries,
+        json!({"bytes":STANDARD.encode("[]")}),
+    );
+    let type_call = next(&mut output);
+    assert_eq!(type_call["params"]["operation"], "upsert_object_type");
+    reply(&mut input, &type_call, Value::Null);
+    let checkpoint = next(&mut output);
+    assert_eq!(checkpoint["params"]["operation"], "set_sync_kv");
+    let stored = checkpoint["params"]["params"]["value"].as_str().unwrap();
+    let stored_at: std::time::SystemTime =
+        chrono::DateTime::parse_from_rfc3339(stored).unwrap().into();
+    assert!(
+        stored_at <= snapshot_at,
+        "sync cursor {stored} moved past the entries snapshot boundary"
+    );
+    reply(&mut input, &checkpoint, Value::Null);
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.stop","generation":3,"reason":"test"})
+    )
+    .unwrap();
+    input.flush().unwrap();
+    assert!(worker.wait().unwrap().success());
+}
