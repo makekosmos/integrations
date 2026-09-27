@@ -622,6 +622,66 @@ fn divergent_untracked_file_conflicts_instead_of_overwriting() {
 }
 
 #[test]
+fn provenance_revision_reads_camelcase_updated_at() {
+    // Objects upserted by source workers carry camelCase fields
+    // (typeId/propsJson/updatedAt). Provenance must attribute the same
+    // revision the object carries instead of silently dropping it.
+    let temp = tempfile::tempdir().unwrap();
+    let vault = temp.path().join("vault");
+    let state_root = temp.path().join("state");
+    std::fs::create_dir(&vault).unwrap();
+    std::fs::create_dir(&state_root).unwrap();
+    let vault_root = vault.to_string_lossy().into_owned();
+    let state_root = state_root.to_string_lossy().into_owned();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ark-markdown-bridge"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    writeln!(input, "{}", json!({"method":"worker.bootstrap","package_id":"ark-markdown-bridge","version":"1.0.0","hash":"a","pid":1,"api_version":1,"generation":1,"correlation_id":"test","token":"token","bridge_config":{"vault_root":vault_root,"state_root":state_root,"selected_types":["com.kosmos.note"],"editable_fields":["title","body"],"readonly_fields":[]}})).unwrap();
+    input.flush().unwrap();
+    assert_eq!(next(&mut output)["method"], "worker.hello");
+
+    let object = json!({"id":"note-1","typeId":"com.kosmos.note","typeVersion":"1.0.0","title":"One","propsJson":{"body":"From ARK"},"createdAt":"x","updatedAt":"2026-09-01T00:00:00Z","deletedAt":null});
+    let state_read = call(&mut output);
+    reply(&mut input, &state_read, false, Value::Null);
+    let poll = call(&mut output);
+    reply(&mut input, &poll, true, json!([]));
+    let list = call(&mut output);
+    reply(&mut input, &list, true, json!([]));
+    let ark = call(&mut output);
+    reply(&mut input, &ark, true, json!([object]));
+    let compare = call(&mut output);
+    assert_eq!(compare["operation"], "filesystem.read");
+    reply(&mut input, &compare, false, Value::Null);
+    let projection = call(&mut output);
+    assert_eq!(projection["operation"], "filesystem.write");
+    reply(&mut input, &projection, true, Value::Null);
+    let provenance = call(&mut output);
+    assert_eq!(provenance["params"]["operation"], "external_refs.upsert");
+    assert_eq!(
+        provenance["params"]["params"]["revision"], "2026-09-01T00:00:00Z",
+        "camelCase updatedAt must reach external_refs.revision"
+    );
+    reply(&mut input, &provenance, true, Value::Null);
+
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.stop","generation":1,"reason":"test"})
+    )
+    .unwrap();
+    input.flush().unwrap();
+    assert!(child
+        .wait_timeout(Duration::from_secs(5))
+        .unwrap()
+        .is_some());
+}
+
+#[test]
 fn missing_object_deletes_the_verified_file_not_a_stale_path() {
     // The recorded projection path can go stale while the bridge is offline
     // (vault restored, file renamed and the ARK object removed in the same

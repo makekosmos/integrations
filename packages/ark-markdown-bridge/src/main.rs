@@ -207,6 +207,12 @@ fn object_type(object: &Value) -> Option<&str> {
         .or_else(|| object.get("typeId"))
         .and_then(Value::as_str)
 }
+fn object_updated_at(object: &Value) -> Option<&str> {
+    object
+        .get("updated_at")
+        .or_else(|| object.get("updatedAt"))
+        .and_then(Value::as_str)
+}
 fn object_body(object: &Value) -> String {
     if let Some(content) = object
         .get("content_json")
@@ -666,7 +672,7 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
                         client,
                         &id,
                         "clean",
-                        object.get("updated_at").and_then(Value::as_str),
+                        object_updated_at(&object),
                         Some(&ark_hash),
                     )?;
                     client.fs(
@@ -695,7 +701,7 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
                         client,
                         &id,
                         "conflict",
-                        object.get("updated_at").and_then(Value::as_str),
+                        object_updated_at(&object),
                         Some(&ark_hash),
                     )?;
                     state.records.insert(
@@ -723,7 +729,7 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
                         client,
                         &id,
                         "conflict",
-                        object.get("updated_at").and_then(Value::as_str),
+                        object_updated_at(&object),
                         Some(&ark_hash),
                     )?;
                     state.records.insert(
@@ -767,7 +773,7 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
                 client,
                 &id,
                 "conflict",
-                object.get("updated_at").and_then(Value::as_str),
+                object_updated_at(&object),
                 Some(&ark_hash),
             )?;
             state.conflict_count = state.conflict_count.saturating_add(1);
@@ -815,7 +821,7 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
                     client,
                     &id,
                     "clean",
-                    refreshed.get("updated_at").and_then(Value::as_str),
+                    object_updated_at(&refreshed),
                     Some(&hash(&rendered)),
                 )?;
                 client.fs(
@@ -828,7 +834,7 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
                     client,
                     &id,
                     "clean",
-                    refreshed.get("updated_at").and_then(Value::as_str),
+                    object_updated_at(&refreshed),
                     Some(&hash(&rendered)),
                 )?;
             }
@@ -857,7 +863,7 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
                         client,
                         &id,
                         "conflict",
-                        object.get("updated_at").and_then(Value::as_str),
+                        object_updated_at(&object),
                         Some(&ark_hash),
                     )?;
                     state.conflict_count = state.conflict_count.saturating_add(1);
@@ -886,7 +892,7 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
                 client,
                 &id,
                 "clean",
-                object.get("updated_at").and_then(Value::as_str),
+                object_updated_at(&object),
                 Some(&ark_hash),
             )?;
             state.records.insert(

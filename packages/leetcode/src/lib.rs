@@ -121,7 +121,11 @@ pub fn needs_question_number_backfill(objects: &Value) -> bool {
                     .or_else(|| object.get("props_json"))
                     .and_then(Value::as_object)
                     .is_some_and(|props| {
+                        // Only submissions can miss problemNumber; the
+                        // profile object shares source=leetcode but would
+                        // otherwise keep the full-sync backfill on forever.
                         props.get("source").and_then(Value::as_str) == Some("leetcode")
+                            && props.contains_key("problemSlug")
                             && !props.contains_key("problemNumber")
                     })
         })
@@ -219,6 +223,36 @@ mod tests {
     #[test]
     fn keeps_graphql_origin_outside_worker_credentials() {
         assert_eq!(GRAPHQL_URL, "https://leetcode.com/graphql");
+    }
+
+    #[test]
+    fn backfill_targets_legacy_submissions_not_the_profile() {
+        let profile = json!({
+            "id": "leetcode-profile:current",
+            "typeId": CODING_PROFILE_TYPE_ID,
+            "deletedAt": null,
+            "propsJson": {"source":"leetcode","username":"u","solved":{},"available":{}}
+        });
+        // The profile carries source=leetcode but is not a submission: it
+        // must not keep the backfill flag raised on every sync.
+        assert!(!needs_question_number_backfill(&json!([profile.clone()])));
+        let legacy_submission = json!({
+            "id": "leetcode-submission:9",
+            "typeId": CODING_SUBMISSION_TYPE_ID,
+            "deletedAt": null,
+            "propsJson": {"source":"leetcode","externalId":"9","problemSlug":"two-sum"}
+        });
+        assert!(needs_question_number_backfill(&json!([
+            profile,
+            legacy_submission
+        ])));
+        let fresh_submission = json!({
+            "id": "leetcode-submission:9",
+            "typeId": CODING_SUBMISSION_TYPE_ID,
+            "deletedAt": null,
+            "propsJson": {"source":"leetcode","externalId":"9","problemSlug":"two-sum","problemNumber":"1"}
+        });
+        assert!(!needs_question_number_backfill(&json!([fresh_submission])));
     }
 
     #[test]

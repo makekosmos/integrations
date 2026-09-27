@@ -3,6 +3,9 @@ use serde_json::{json, Value};
 use std::{
     io::{BufRead, BufReader, Write},
     process::{Command, Stdio},
+    sync::mpsc::{self, Receiver},
+    thread,
+    time::{Duration, Instant},
 };
 
 fn next_message(output: &mut BufReader<std::process::ChildStdout>) -> Value {
@@ -16,6 +19,40 @@ fn next_message(output: &mut BufReader<std::process::ChildStdout>) -> Value {
     }
 }
 
+fn collector(stdout: std::process::ChildStdout) -> Receiver<Value> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if let Ok(message) = serde_json::from_str::<Value>(&line) {
+                if sender.send(message).is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    receiver
+}
+
+fn next(receiver: &Receiver<Value>) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(message) if message["method"] != "worker.heartbeat" => return message,
+            Ok(_) => continue,
+            Err(_) => panic!("timed out waiting for worker message"),
+        }
+    }
+}
+
+fn next_call(receiver: &Receiver<Value>) -> Value {
+    loop {
+        let message = next(receiver);
+        if message["method"] == "worker.call" {
+            return message;
+        }
+    }
+}
+
 fn reply(input: &mut impl Write, call: &Value, result: Value) {
     writeln!(
         input,
@@ -24,6 +61,30 @@ fn reply(input: &mut impl Write, call: &Value, result: Value) {
     )
     .expect("worker input");
     input.flush().expect("worker input flush");
+}
+
+fn reply_err(input: &mut impl Write, call: &Value) {
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.result","id":call["id"],"ok":false,"result":null,"error":"boom"})
+    )
+    .expect("worker input");
+    input.flush().expect("worker input flush");
+}
+
+fn bootstrap(input: &mut impl Write) {
+    writeln!(
+        input,
+        "{}",
+        json!({
+            "method":"worker.bootstrap","package_id":"com.kosmos.codewars","version":"0.1.0",
+            "hash":"archive-hash","pid":42,"api_version":1,"generation":3,"token":"opaque-token",
+            "integration":{"settings":[{"key":"username","kind":"text","required":true}],"values":{"username":"tester"},"secret_handles":{},"schedule":{"interval_seconds":86400}}
+        })
+    )
+    .expect("bootstrap");
+    input.flush().expect("bootstrap flush");
 }
 
 #[test]
@@ -124,6 +185,156 @@ fn runs_mocked_profile_completion_and_rank_sync() {
         "6 kyu"
     );
     reply(&mut input, &completion_write, Value::Null);
+
+    writeln!(input, "{}", json!({"method":"worker.stop","generation":3})).expect("stop");
+    input.flush().expect("stop flush");
+    assert!(worker.wait().expect("worker wait").success());
+}
+
+#[test]
+fn paginates_when_total_pages_is_absent() {
+    // A page envelope without totalPages must not truncate the history to
+    // page 0: the worker should keep paging until an empty page.
+    let mut worker = Command::new(env!("CARGO_BIN_EXE_codewars-worker"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("worker process");
+    let mut input = worker.stdin.take().expect("worker stdin");
+    let calls = collector(worker.stdout.take().expect("worker stdout"));
+    bootstrap(&mut input);
+    assert_eq!(next(&calls)["method"], "worker.hello");
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.run","generation":3,"run_id":"run-1"})
+    )
+    .expect("run");
+    input.flush().expect("run flush");
+
+    let profile_call = next_call(&calls);
+    reply(
+        &mut input,
+        &profile_call,
+        json!({"bytes":STANDARD.encode(r#"{"username":"tester","honor":544,"ranks":{"overall":{"name":"3 kyu"}},"codeChallenges":{"totalCompleted":2}}"#)}),
+    );
+    let existing = next_call(&calls);
+    reply(&mut input, &existing, json!([]));
+    let state = next_call(&calls);
+    reply(&mut input, &state, Value::Null);
+
+    let page0 = next_call(&calls);
+    assert_eq!(
+        page0["params"]["url"],
+        "https://www.codewars.com/api/v1/users/tester/code-challenges/completed?page=0"
+    );
+    reply(
+        &mut input,
+        &page0,
+        json!({"bytes":STANDARD.encode(r#"{"data":[{"id":"kata-1","name":"A","slug":"a","completedAt":"2026-08-28T10:00:00Z","completedLanguages":["rust"]}]}"#)}),
+    );
+
+    let page1 = next_call(&calls);
+    assert_eq!(page1["operation"], "network.fetch");
+    assert_eq!(
+        page1["params"]["url"],
+        "https://www.codewars.com/api/v1/users/tester/code-challenges/completed?page=1"
+    );
+    reply(
+        &mut input,
+        &page1,
+        json!({"bytes":STANDARD.encode(r#"{"data":[]}"#)}),
+    );
+
+    for expected in ["upsert_object_type", "upsert_object_type", "upsert_object"] {
+        let call = next_call(&calls);
+        assert_eq!(call["params"]["operation"], expected);
+        reply(&mut input, &call, Value::Null);
+    }
+    let rank_call = next_call(&calls);
+    reply(
+        &mut input,
+        &rank_call,
+        json!({"bytes":STANDARD.encode(r#"{"rank":{"name":"6 kyu"}}"#)}),
+    );
+    let completion_write = next_call(&calls);
+    assert_eq!(completion_write["params"]["operation"], "upsert_object");
+    reply(&mut input, &completion_write, Value::Null);
+    let cursor = next_call(&calls);
+    assert_eq!(cursor["params"]["operation"], "set_sync_kv");
+    reply(&mut input, &cursor, Value::Null);
+
+    writeln!(input, "{}", json!({"method":"worker.stop","generation":3})).expect("stop");
+    input.flush().expect("stop flush");
+    assert!(worker.wait().expect("worker wait").success());
+}
+
+#[test]
+fn a_kata_that_no_longer_resolves_does_not_wedge_the_sync() {
+    // Rank is optional metadata. If the challenge endpoint fails for one
+    // kata (deleted or private), the completion must still be imported with
+    // a null rank and the cursor must still persist; aborting the whole run
+    // leaves the sync stuck on the same kata forever.
+    let mut worker = Command::new(env!("CARGO_BIN_EXE_codewars-worker"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("worker process");
+    let mut input = worker.stdin.take().expect("worker stdin");
+    let calls = collector(worker.stdout.take().expect("worker stdout"));
+    bootstrap(&mut input);
+    assert_eq!(next(&calls)["method"], "worker.hello");
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.run","generation":3,"run_id":"run-1"})
+    )
+    .expect("run");
+    input.flush().expect("run flush");
+
+    let profile_call = next_call(&calls);
+    reply(
+        &mut input,
+        &profile_call,
+        json!({"bytes":STANDARD.encode(r#"{"username":"tester","honor":544,"ranks":{"overall":{"name":"3 kyu"}},"codeChallenges":{"totalCompleted":1}}"#)}),
+    );
+    let existing = next_call(&calls);
+    reply(&mut input, &existing, json!([]));
+    let state = next_call(&calls);
+    reply(&mut input, &state, Value::Null);
+    let page_call = next_call(&calls);
+    reply(
+        &mut input,
+        &page_call,
+        json!({"bytes":STANDARD.encode(r#"{"totalPages":1,"data":[{"id":"gone-kata","name":"Removed","slug":"removed","completedAt":"2026-08-28T10:00:00Z","completedLanguages":["rust"]}]}"#)}),
+    );
+
+    for expected in ["upsert_object_type", "upsert_object_type", "upsert_object"] {
+        let call = next_call(&calls);
+        assert_eq!(call["params"]["operation"], expected);
+        reply(&mut input, &call, Value::Null);
+    }
+
+    let rank_call = next_call(&calls);
+    assert_eq!(
+        rank_call["params"]["url"],
+        "https://www.codewars.com/api/v1/code-challenges/gone-kata"
+    );
+    reply_err(&mut input, &rank_call);
+
+    let completion_write = next_call(&calls);
+    assert_eq!(
+        completion_write["params"]["params"]["object"]["id"],
+        "codewars-completion:tester:gone-kata"
+    );
+    assert_eq!(
+        completion_write["params"]["params"]["object"]["propsJson"]["rank"],
+        Value::Null
+    );
+    reply(&mut input, &completion_write, Value::Null);
+    let cursor = next_call(&calls);
+    assert_eq!(cursor["params"]["operation"], "set_sync_kv");
+    reply(&mut input, &cursor, Value::Null);
 
     writeln!(input, "{}", json!({"method":"worker.stop","generation":3})).expect("stop");
     input.flush().expect("stop flush");

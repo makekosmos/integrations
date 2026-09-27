@@ -38,7 +38,13 @@ pub(super) fn run(client: &mut Client<'_>, username: &str) -> Result<(), WorkerE
                 .filter(|item| completion_is_new_enough(item, cutoff))
                 .cloned(),
         );
-        let total_pages = body.get("totalPages").and_then(Value::as_u64).unwrap_or(0);
+        // totalPages is a hint, not a contract: when it is absent or not a
+        // number, keep paging until an empty page instead of truncating the
+        // history to page 0.
+        let total_pages = body
+            .get("totalPages")
+            .and_then(Value::as_u64)
+            .unwrap_or(u64::MAX);
         if items.is_empty() || reached || page + 1 >= total_pages || page >= 10_000 {
             break;
         }
@@ -57,10 +63,14 @@ pub(super) fn run(client: &mut Client<'_>, username: &str) -> Result<(), WorkerE
     )?;
     for completion in completions {
         let challenge = item_id(&completion).ok_or(WorkerError::Invalid)?;
-        let rank = json(client, challenge_url(&challenge))?
-            .get("rank")
-            .cloned()
-            .unwrap_or(Value::Null);
+        // Rank is optional metadata: a kata that no longer resolves
+        // (deleted or private) must not abort the whole sync, which would
+        // wedge the integration on the same kata on every run.
+        let rank = match json(client, challenge_url(&challenge)) {
+            Ok(body) => body.get("rank").cloned().unwrap_or(Value::Null),
+            Err(error @ (WorkerError::Stopped | WorkerError::Io)) => return Err(error),
+            Err(_) => Value::Null,
+        };
         client.ark_write(
             "upsert_object",
             json!({"object":completion_object(canonical, &completion, &rank)?}),
