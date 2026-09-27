@@ -907,25 +907,34 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
         .map(|(id, record)| (id.clone(), record.clone()))
         .collect::<Vec<_>>();
     for (id, record) in missing {
-        let full_path = join(&config.vault_root, &record.path);
-        let current = by_id.get(&id).map(|(_, content)| content.as_str());
-        if current.is_none() {
+        let Some((current_path, current_content)) = by_id
+            .get(&id)
+            .map(|(path, content)| (path.as_str(), content.as_str()))
+        else {
             // The authoritative object disappeared. A missing file is already
             // converged; retain durable provenance so the identity can be
             // recovered if the object returns.
             record_provenance(client, &id, "missing", None, None)?;
             continue;
-        }
-        let current_hash = hash(current.unwrap_or_default());
+        };
+        let current_hash = hash(current_content);
         if record.conflict.is_none() && current_hash == record.file_hash {
-            client.fs("filesystem.delete", &full_path, None)?;
+            // Delete the file whose content was actually verified. The
+            // recorded path can be stale (renamed while the bridge was
+            // offline); deleting it could drop an unrelated user file and
+            // leaves the real projection orphaned.
+            client.fs(
+                "filesystem.delete",
+                &join(&config.vault_root, current_path),
+                None,
+            )?;
             record_provenance(client, &id, "missing", None, None)?;
         } else {
             record_provenance(client, &id, "conflict", None, Some(&current_hash))?;
             state.records.insert(
                 id,
                 RecordState {
-                    path: record.path,
+                    path: current_path.to_owned(),
                     file_hash: current_hash.clone(),
                     ark_hash: record.ark_hash.clone(),
                     conflict: Some(ConflictState {
