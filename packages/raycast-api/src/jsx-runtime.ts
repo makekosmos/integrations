@@ -34,3 +34,10 @@ export function jsx(
 }
 
 export const jsxs = jsx;
+
+export function jsxDEV(
+  type: string | JsxComponent,
+  props: JsxProps | null | undefined,
+): RaycastChild {
+  return jsx(type, props);
+}
