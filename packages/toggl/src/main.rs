@@ -1,8 +1,8 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{DateTime, Utc};
 use kosmos_toggl_worker::{
-    before_cursor, encode_query_value, parse_entries, time_entry_object, DataError, ENTRIES_PATH,
-    MAX_RESPONSE_BYTES, ORIGIN, SYNC_KEY, TIME_ENTRY_TYPE_ID,
+    before_cursor, cursor_stalled, encode_query_value, parse_entries, time_entry_object, DataError,
+    ENTRIES_PATH, MAX_RESPONSE_BYTES, ORIGIN, SYNC_KEY, TIME_ENTRY_TYPE_ID,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -178,7 +178,7 @@ fn sync(client: &mut Client<'_>) -> Result<(), WorkerError> {
         };
         if before
             .as_deref()
-            .is_some_and(|current| current <= next.as_str())
+            .is_some_and(|current| cursor_stalled(current, &next))
         {
             break;
         }
