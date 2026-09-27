@@ -173,6 +173,10 @@ fn fetch_pages(
 
 fn sync(client: &mut Client<'_>) -> Result<(), WorkerError> {
     let last_success = client.sync_value()?;
+    // The stored cursor is the read boundary of this sync, not its write
+    // time: capture it before fetching so provider changes landing while the
+    // sync runs are observed again instead of skipped forever.
+    let now = Utc::now().to_rfc3339();
     let templates = fetch_pages(client, TEMPLATES_PATH, "exercise_templates", 100, None)?
         .into_iter()
         .filter_map(|template| Some((template.get("id")?.as_str()?.to_owned(), template)))
@@ -200,7 +204,6 @@ fn sync(client: &mut Client<'_>) -> Result<(), WorkerError> {
     } else {
         fetch_pages(client, WORKOUTS_PATH, "workouts", 10, None)?
     };
-    let now = Utc::now().to_rfc3339();
     client.ark_write(
         "upsert_object_type",
         json!({"object_type": {
@@ -218,7 +221,10 @@ fn sync(client: &mut Client<'_>) -> Result<(), WorkerError> {
     for id in deleted_ids {
         client.ark_write("delete_object", json!({"id":format!("hevy-workout:{id}")}))?;
     }
-    client.ark_write("set_sync_kv", json!({"key":SYNC_KEY,"value":now}))?;
+    client.ark_write(
+        "set_sync_kv",
+        json!({"key":SYNC_KEY,"value":now}),
+    )?;
     Ok(())
 }
 
