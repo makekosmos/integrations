@@ -90,12 +90,24 @@ fn runs_host_triggered_sync_and_writes_mapped_completion() {
     let activity_call = next_message(&mut output);
     assert_eq!(
         activity_call["params"]["url"],
-        "https://bigfrontend.dev/api/activity?type=submission&userId=42"
+        "https://bigfrontend.dev/api/activity?type=submission&userId=42&limit=500"
     );
     reply(
         &mut input,
         &activity_call,
         json!({"bytes": STANDARD.encode(r#"{"items":[{"id":7,"createdAt":"2026-08-28T10:00:00Z","target":{"title":"Memoize","permalink":"memoize","targetType":"problem"}}]}"#)}),
+    );
+
+    let last_page_call = next_message(&mut output);
+    assert_eq!(last_page_call["operation"], "network.fetch");
+    assert!(last_page_call["params"]["url"]
+        .as_str()
+        .unwrap()
+        .contains("from=7"));
+    reply(
+        &mut input,
+        &last_page_call,
+        json!({"bytes": STANDARD.encode(r#"{"items":[]}"#)}),
     );
 
     let type_call = next_message(&mut output);
@@ -114,6 +126,142 @@ fn runs_host_triggered_sync_and_writes_mapped_completion() {
         "https://bigfrontend.dev/problem/memoize"
     );
     reply(&mut input, &object_call, Value::Null);
+
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.stop","generation":3,"reason":"test"})
+    )
+    .expect("stop");
+    input.flush().expect("stop flush");
+    assert!(worker.wait().expect("worker wait").success());
+}
+
+#[test]
+fn pages_activity_history_with_from_cursor() {
+    let mut worker = Command::new(env!("CARGO_BIN_EXE_bigfrontend-worker"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("worker process");
+    let mut input = worker.stdin.take().expect("worker stdin");
+    let mut output = BufReader::new(worker.stdout.take().expect("worker stdout"));
+    writeln!(
+        input,
+        "{}",
+        json!({
+            "method": "worker.bootstrap",
+            "package_id": "com.kosmos.bigfrontend",
+            "version": "0.1.0",
+            "hash": "archive-hash",
+            "pid": 42,
+            "api_version": 1,
+            "generation": 3,
+            "correlation_id": "test",
+            "token": "opaque-token",
+            "integration": {
+                "settings": [{"key":"username","label":"Username","kind":"text","required":true}],
+                "values": {"username":"public-user"},
+                "secret_handles": {},
+                "schedule": {"interval_seconds": 86400}
+            }
+        })
+    )
+    .expect("bootstrap");
+    input.flush().expect("bootstrap flush");
+    assert_eq!(next_message(&mut output)["method"], "worker.hello");
+
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.run","generation":3,"run_id":"run-pages"})
+    )
+    .expect("run");
+    input.flush().expect("run flush");
+
+    let state_call = next_message(&mut output);
+    assert_eq!(state_call["operation"], "ark.read");
+    reply(&mut input, &state_call, Value::Null);
+    let profile_call = next_message(&mut output);
+    reply(
+        &mut input,
+        &profile_call,
+        json!({"bytes": STANDARD.encode(r#"<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"profile":{"id":42}}}}</script>"#)}),
+    );
+
+    // The activity endpoint returns a bounded window per request: the worker
+    // must keep fetching with the exclusive `from` cursor until an empty page
+    // or the history is silently truncated to the first page.
+    let activity_call = next_message(&mut output);
+    assert_eq!(activity_call["operation"], "network.fetch");
+    let first_url = activity_call["params"]["url"].as_str().unwrap().to_owned();
+    assert!(first_url.contains("/api/activity?type=submission&userId=42"));
+    reply(
+        &mut input,
+        &activity_call,
+        json!({"bytes": STANDARD.encode(r#"{"items":[
+            {"id":30,"createdAt":"2026-08-28T10:00:00Z","target":{"title":"A","permalink":"a","targetType":"problem"}},
+            {"id":21,"createdAt":"2026-08-27T10:00:00Z","target":{"title":"B","permalink":"b","targetType":"problem"}}
+        ]}"#)}),
+    );
+
+    let next_page = next_message(&mut output);
+    assert_eq!(next_page["operation"], "network.fetch");
+    let cursor_url = next_page["params"]["url"].as_str().unwrap().to_owned();
+    assert!(
+        cursor_url.contains("from=21"),
+        "expected from=21 cursor, got {cursor_url}"
+    );
+    reply(
+        &mut input,
+        &next_page,
+        json!({"bytes": STANDARD.encode(r#"{"items":[
+            {"id":20,"createdAt":"2026-08-26T10:00:00Z","target":{"title":"C","permalink":"c","targetType":"problem"}}
+        ]}"#)}),
+    );
+
+    let last_page = next_message(&mut output);
+    assert_eq!(last_page["operation"], "network.fetch");
+    let last_url = last_page["params"]["url"].as_str().unwrap().to_owned();
+    assert!(
+        last_url.contains("from=20"),
+        "expected from=20 cursor, got {last_url}"
+    );
+    reply(
+        &mut input,
+        &last_page,
+        json!({"bytes": STANDARD.encode(r#"{"items":[]}"#)}),
+    );
+
+    let mut written = Vec::new();
+    loop {
+        let call = next_message(&mut output);
+        assert_eq!(call["operation"], "ark.write");
+        match call["params"]["operation"].as_str().unwrap() {
+            "upsert_object" => {
+                written.push(
+                    call["params"]["params"]["object"]["id"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                );
+            }
+            "set_sync_kv" => {
+                reply(&mut input, &call, Value::Null);
+                break;
+            }
+            _ => {}
+        }
+        reply(&mut input, &call, Value::Null);
+    }
+    assert_eq!(
+        written,
+        [
+            "bigfrontend-completion:30",
+            "bigfrontend-completion:21",
+            "bigfrontend-completion:20"
+        ]
+    );
 
     writeln!(
         input,

@@ -15,6 +15,7 @@ use std::{
 
 const MAX_FILES: usize = 4096;
 const TICK: Duration = Duration::from_secs(2);
+const HEARTBEAT: Duration = Duration::from_secs(15);
 const BRIDGE_FORMAT_VERSION: u64 = 1;
 const CANONICAL_VERSION: &str = "1.0.0";
 
@@ -206,6 +207,12 @@ fn object_type(object: &Value) -> Option<&str> {
         .get("type_id")
         .or_else(|| object.get("typeId"))
         .and_then(Value::as_str)
+}
+fn object_deleted(object: &Value) -> bool {
+    object
+        .get("deleted_at")
+        .or_else(|| object.get("deletedAt"))
+        .is_some_and(|value| !value.is_null())
 }
 fn object_updated_at(object: &Value) -> Option<&str> {
     object
@@ -581,11 +588,18 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
             }
         }
     }
+    // list_objects returns soft-deleted rows: a tombstoned object is absent
+    // for sync purposes. Filtering here keeps it out of the collision map and
+    // `seen`, so the missing path below removes its verified projection and
+    // records "missing" provenance instead of re-rendering deleted content.
     let objects = client
         .ark(false, "list_objects", Value::Null)?
         .as_array()
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|object| !object_deleted(object))
+        .collect::<Vec<_>>();
     let mut collision_ids: HashMap<String, HashSet<String>> = HashMap::new();
     for object in &objects {
         if let (Some(id), Some(kind)) = (
@@ -1002,6 +1016,23 @@ fn main() {
             }
         }
     });
+    // The supervisor reaps a worker after ~60s without worker.heartbeat. A
+    // single sync pass can exceed that — every broker call may block up to
+    // the 30s response deadline — so liveness must not depend on sync
+    // completing: heartbeat on a dedicated thread like the sibling workers.
+    {
+        let heartbeat_token = token.clone();
+        thread::spawn(move || loop {
+            thread::sleep(HEARTBEAT);
+            if Client::send(
+                json!({"method":"worker.heartbeat","generation":generation,"token":heartbeat_token}),
+            )
+            .is_err()
+            {
+                break;
+            }
+        });
+    }
     let mut client = Client {
         token,
         generation,

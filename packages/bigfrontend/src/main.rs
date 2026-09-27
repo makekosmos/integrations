@@ -2,7 +2,8 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::Utc;
 use kosmos_bigfrontend_worker::{
     cutoff, encode_path_segment, map_submission, profile_json, valid_username, value_id,
-    CODING_SUBMISSION_TYPE_ID, MAX_ITEMS, MAX_RESPONSE_BYTES, ORIGIN, PROFILE_PATH, SYNC_KEY,
+    ACTIVITY_MAX_PAGE, ACTIVITY_PAGE_SIZE, CODING_SUBMISSION_TYPE_ID, MAX_ITEMS,
+    MAX_RESPONSE_BYTES, ORIGIN, PROFILE_PATH, SYNC_KEY,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -152,18 +153,48 @@ fn sync(client: &mut Client<'_>, username: &str) -> Result<(), WorkerError> {
     )?;
     let user_id =
         value_id(&profile["props"]["pageProps"]["profile"]["id"]).ok_or(WorkerError::Invalid)?;
-    let activity_url = format!(
-        "{ORIGIN}/api/activity?type=submission&userId={}",
-        encode_path_segment(&user_id)
-    );
-    let activity: Value =
-        serde_json::from_slice(&client.fetch(&activity_url)?).map_err(|_| WorkerError::Json)?;
-    let items = activity
-        .get("items")
-        .and_then(Value::as_array)
-        .ok_or(WorkerError::Invalid)?;
-    if items.len() > MAX_ITEMS {
-        return Err(WorkerError::Invalid);
+    // The activity endpoint serves a bounded window per request (default ~20
+    // items) and exposes `from=<activity id>` as the exclusive cursor into
+    // older entries. Page until an empty page, the incremental cutoff, or the
+    // item bound — a single fetch silently truncates the submission history.
+    let mut items = Vec::new();
+    let mut from: Option<String> = None;
+    for _ in 0..ACTIVITY_MAX_PAGE {
+        let cursor = from.as_deref().map_or_else(String::new, |cursor| {
+            format!("&from={}", encode_path_segment(cursor))
+        });
+        let activity_url = format!(
+            "{ORIGIN}/api/activity?type=submission&userId={}&limit={ACTIVITY_PAGE_SIZE}{cursor}",
+            encode_path_segment(&user_id)
+        );
+        let activity: Value =
+            serde_json::from_slice(&client.fetch(&activity_url)?).map_err(|_| WorkerError::Json)?;
+        let page = activity
+            .get("items")
+            .and_then(Value::as_array)
+            .ok_or(WorkerError::Invalid)?;
+        let next = page.last().and_then(|item| value_id(&item["id"]));
+        // The feed is newest-first: one item older than the cutoff means
+        // every subsequent item is older still — stop requesting pages.
+        let reached_cutoff = cutoff.is_some_and(|at| {
+            page.iter().any(|item| {
+                kosmos_bigfrontend_worker::timestamp_for_cutoff(&item["createdAt"])
+                    .is_some_and(|item_at| item_at < at)
+            })
+        });
+        items.extend(page.iter().cloned());
+        if items.len() > MAX_ITEMS {
+            return Err(WorkerError::Invalid);
+        }
+        if page.is_empty() || reached_cutoff {
+            break;
+        }
+        match next {
+            // An ignored or repeated cursor means no progress: stop rather
+            // than request the same window forever.
+            Some(next) if from.as_deref() != Some(next.as_str()) => from = Some(next),
+            _ => break,
+        }
     }
     let now = Utc::now().to_rfc3339();
     client.ark_write(
@@ -180,7 +211,7 @@ fn sync(client: &mut Client<'_>, username: &str) -> Result<(), WorkerError> {
             }
         }),
     )?;
-    for item in items {
+    for item in &items {
         if cutoff.is_some_and(|at| {
             kosmos_bigfrontend_worker::timestamp_for_cutoff(&item["createdAt"])
                 .is_some_and(|item_at| item_at < at)
