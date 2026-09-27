@@ -152,12 +152,19 @@ fn join(root: &str, leaf: &str) -> String {
 fn scalar(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into())
 }
+fn id_prefix(id: &str) -> &str {
+    let mut end = id.len().min(12);
+    while !id.is_char_boundary(end) {
+        end -= 1;
+    }
+    &id[..end]
+}
 fn safe_name(title: &str, id: &str) -> String {
     let stem = safe_stem(title);
     format!(
         "{}-{}.md",
         if stem.is_empty() { "untitled" } else { &stem },
-        &id[..id.len().min(12)]
+        id_prefix(id)
     )
 }
 fn safe_stem(title: &str) -> String {
@@ -179,7 +186,7 @@ fn collision_safe_name(title: &str, id: &str) -> String {
     format!(
         "{}-{}-{}.md",
         if stem.is_empty() { "untitled" } else { &stem },
-        &id[..id.len().min(12)],
+        id_prefix(id),
         suffix
     )
 }
@@ -190,7 +197,7 @@ fn collision_key(title: &str, id: &str) -> String {
     format!(
         "{}-{}",
         safe_stem(title).to_lowercase(),
-        id[..id.len().min(12)].to_lowercase()
+        id_prefix(id).to_lowercase()
     )
 }
 
@@ -1060,6 +1067,16 @@ mod tests {
             collision_key("Foo", "abcdefghijkl-1"),
             collision_key("foo", "abcdefghijkl-2")
         );
+    }
+
+    #[test]
+    fn multibyte_object_ids_do_not_panic_filename_helpers() {
+        // 12-byte cut lands inside 'あ' (bytes 11..14): naive slicing panics.
+        let id = "aaaaaaaaaaaあ-rest";
+        assert!(safe_name("Note", id).starts_with("Note-"));
+        assert!(collision_safe_name("Note", id).contains("Note-"));
+        assert_eq!(collision_key("Note", id), "note-aaaaaaaaaaa");
+        assert_eq!(id_prefix(id), "aaaaaaaaaaa");
     }
 
     #[allow(clippy::unwrap_used)]

@@ -232,6 +232,7 @@ dependencies = [
 [[package]]
 name = "kosmos-package-protocol"
 version = "0.1.0"
+source = "git+https://github.com/makekosmos/cortex?rev=7d99757cb8f1b6d67b8dbae4a1ca2782ddd7d916#7d99757cb8f1b6d67b8dbae4a1ca2782ddd7d916"
 dependencies = [
  "serde",
 ]
