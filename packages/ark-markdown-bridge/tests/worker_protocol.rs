@@ -520,6 +520,106 @@ fn worker_projects_and_imports_only_through_broker_stdio() {
         .is_some());
 }
 
+#[test]
+fn divergent_untracked_file_conflicts_instead_of_overwriting() {
+    // A vault file carrying a known ark_id with no recorded baseline may hold
+    // user content the bridge has never seen (fresh state, restored vault,
+    // second device). It must become a conflict, never a silent overwrite.
+    let temp = tempfile::tempdir().unwrap();
+    let vault = temp.path().join("vault");
+    let state_root = temp.path().join("state");
+    std::fs::create_dir(&vault).unwrap();
+    std::fs::create_dir(&state_root).unwrap();
+    let vault_root = vault.to_string_lossy().into_owned();
+    let state_root = state_root.to_string_lossy().into_owned();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ark-markdown-bridge"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    writeln!(input, "{}", json!({"method":"worker.bootstrap","package_id":"ark-markdown-bridge","version":"1.0.0","hash":"a","pid":1,"api_version":1,"generation":1,"correlation_id":"test","token":"token","bridge_config":{"vault_root":vault_root,"state_root":state_root,"selected_types":["com.kosmos.note"],"editable_fields":["title","body"],"readonly_fields":[]}})).unwrap();
+    input.flush().unwrap();
+    assert_eq!(next(&mut output)["method"], "worker.hello");
+
+    let object = json!({"id":"note-1","type_id":"com.kosmos.note","type_version":"1.0.0","title":"One","props_json":{"description":null,"extensions":{}},"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"From ARK"}]}]},"created_at":"x","updated_at":"x","deleted_at":null});
+    let divergent = "---\nark_id: \"note-1\"\nark_type: \"com.kosmos.note\"\nark_version: \"1.0.0\"\nbridge_version: 1\ntitle: \"One\"\n---\n\nLocal draft\n";
+
+    let state_read = call(&mut output);
+    reply(&mut input, &state_read, false, Value::Null);
+    let poll = call(&mut output);
+    reply(
+        &mut input,
+        &poll,
+        true,
+        json!([{ "name":"Draft-note-1.md", "kind":"file", "size": 80, "modified_ms": 1 }]),
+    );
+    let list = call(&mut output);
+    reply(
+        &mut input,
+        &list,
+        true,
+        json!([{ "name":"Draft-note-1.md", "kind":"file", "size": 80, "modified_ms": 1 }]),
+    );
+    let file = call(&mut output);
+    assert_eq!(file["operation"], "filesystem.read");
+    reply(
+        &mut input,
+        &file,
+        true,
+        json!({"bytes":STANDARD.encode(divergent.as_bytes())}),
+    );
+    let ark = call(&mut output);
+    assert_eq!(ark["operation"], "ark.read");
+    reply(&mut input, &ark, true, json!([object]));
+
+    let mut saw_conflict_write = false;
+    for _ in 0..3 {
+        let message = call(&mut output);
+        match message["operation"].as_str().unwrap() {
+            "filesystem.read" => reply(
+                &mut input,
+                &message,
+                true,
+                json!({"bytes":STANDARD.encode(divergent.as_bytes())}),
+            ),
+            "filesystem.write" => {
+                let path = message["params"]["path"].as_str().unwrap();
+                if path.ends_with(".md") {
+                    assert!(
+                        path.ends_with(".ark-conflict.md"),
+                        "ARK candidate must land in the conflict sibling, got {path}"
+                    );
+                    saw_conflict_write = true;
+                }
+                reply(&mut input, &message, true, Value::Null);
+            }
+            "ark.write" => {
+                if message["params"]["operation"] == "external_refs.upsert" {
+                    assert_eq!(message["params"]["params"]["state"], "conflict");
+                }
+                reply(&mut input, &message, true, Value::Null);
+            }
+            other => panic!("unexpected broker call {other}"),
+        }
+    }
+    assert!(saw_conflict_write, "no conflict sibling write observed");
+
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.stop","generation":1,"reason":"test"})
+    )
+    .unwrap();
+    input.flush().unwrap();
+    assert!(child
+        .wait_timeout(Duration::from_secs(5))
+        .unwrap()
+        .is_some());
+}
+
 trait WaitTimeout {
     fn wait_timeout(
         &mut self,

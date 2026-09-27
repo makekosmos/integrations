@@ -270,16 +270,17 @@ fn run() -> Result<(), WorkerError> {
             Some("worker.run")
                 if message.get("generation").and_then(Value::as_u64) == Some(generation) =>
             {
-                match sync(
+                if let Err(error) = sync(
                     std::rc::Rc::clone(&client),
                     account.clone(),
                     handle.clone(),
                     data_origin.clone(),
                     site_id,
                 ) {
-                    Ok(()) => {}
-                    Err(WorkerError::Stopped) => return Ok(()),
-                    Err(error) => return Err(error),
+                    if matches!(error, WorkerError::Stopped) {
+                        return Ok(());
+                    }
+                    eprintln!("Huawei Health sync failed");
                 }
             }
             _ => {}

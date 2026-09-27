@@ -135,7 +135,7 @@ function memoryRuntime(): RaycastRuntimeAdapter {
       stack.pop();
     },
     navigationPopToRoot() {
-      stack.splice(0, Math.max(0, stack.length - 1));
+      stack.splice(1);
     },
   };
 }

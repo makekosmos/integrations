@@ -117,3 +117,73 @@ fn stop_during_first_sync_call_exits_promptly() {
         thread::sleep(Duration::from_millis(10));
     }
 }
+
+#[test]
+fn transient_sync_failure_does_not_kill_worker() {
+    // A failed sync run (e.g. a rate-limited fetch) is retried on the next
+    // scheduled trigger — it must not kill the worker. Every sibling source
+    // worker logs the error and keeps serving future `worker.run` triggers;
+    // a crash burns the supervisor's restart budget.
+    let mut worker = Command::new(env!("CARGO_BIN_EXE_huawei-health-worker"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = worker.stdin.take().unwrap();
+    let mut output = BufReader::new(worker.stdout.take().unwrap());
+    writeln!(
+        input,
+        "{}",
+        json!({
+            "method":"worker.bootstrap", "package_id":"com.kosmos.huawei-health",
+            "version":"0.1.0", "hash":"h", "pid":42, "api_version":1,
+            "generation":3, "token":"worker-token",
+            "integration": {
+                "account_key": ACCOUNT,
+                "data_origin": "sportdata-dre.things.dbankcloud.com",
+                "site_id": 7,
+                "settings": [{"key":"session","label":"Session","kind":"secret","required":true}],
+                "values": {}, "secret_handles": {"session":HANDLE}
+            }
+        })
+    )
+    .unwrap();
+    input.flush().unwrap();
+    let mut line = String::new();
+    output.read_line(&mut line).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&line).unwrap()["method"],
+        "worker.hello"
+    );
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.run","generation":3,"run_id":"run-1"})
+    )
+    .unwrap();
+    input.flush().unwrap();
+    line.clear();
+    output.read_line(&mut line).unwrap();
+    let call: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(call["method"], "worker.call");
+    // Host reports the call failed: the sync run is aborted.
+    let _ = writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.result","id":call["id"],"generation":3,"ok":false})
+    );
+    let _ = writeln!(input, "{}", json!({"method":"worker.stop","generation":3}));
+    let _ = input.flush();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if let Some(status) = worker.try_wait().unwrap() {
+            assert!(status.success(), "worker exited {status} on a failed run");
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = worker.kill();
+            panic!("worker did not exit after stop");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}

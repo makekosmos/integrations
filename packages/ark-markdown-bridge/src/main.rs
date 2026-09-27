@@ -843,6 +843,39 @@ fn sync(client: &mut Client, config: &Config) -> Result<BridgeStatus, ()> {
             );
         } else {
             if file_content != ark_content {
+                if previous.is_none() && !file_content.is_empty() {
+                    // The file carries this ark_id but the bridge has no
+                    // baseline for it (fresh state dir, restored vault,
+                    // second device). Its content is potentially unseen user
+                    // work: never overwrite it — park the ARK render in the
+                    // conflict sibling instead.
+                    client.write(
+                        &join(&config.vault_root, &format!("{path}.ark-conflict.md")),
+                        &ark_content,
+                    )?;
+                    record_provenance(
+                        client,
+                        &id,
+                        "conflict",
+                        object.get("updated_at").and_then(Value::as_str),
+                        Some(&ark_hash),
+                    )?;
+                    state.conflict_count = state.conflict_count.saturating_add(1);
+                    state.last_conflict_at = Some(chrono::Utc::now().to_rfc3339());
+                    state.records.insert(
+                        id.clone(),
+                        RecordState {
+                            path,
+                            file_hash: hash(&file_content),
+                            ark_hash: ark_hash.clone(),
+                            conflict: Some(ConflictState {
+                                file_hash: hash(&file_content),
+                                ark_hash,
+                            }),
+                        },
+                    );
+                    continue;
+                }
                 let full_path = join(&config.vault_root, &path);
                 if client.read(&full_path).unwrap_or_default() != file_content {
                     continue;
