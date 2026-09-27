@@ -7,6 +7,11 @@ pub const CODING_SUBMISSION_TYPE_ID: &str = "coding_submission_obj";
 pub const MAX_USERNAME: usize = 128;
 pub const MAX_RESPONSE_BYTES: usize = 700 * 1024;
 pub const MAX_ITEMS: usize = 4096;
+// The activity endpoint returns a bounded window per request (default ~20
+// items); ask for a page size that keeps the response under MAX_RESPONSE_BYTES
+// and page deeper with the `from` cursor.
+pub const ACTIVITY_PAGE_SIZE: u64 = 500;
+pub const ACTIVITY_MAX_PAGE: u64 = 10_000;
 pub const SYNC_KEY: &str = "kosmos.integration.bigfrontend.last_success_at";
 
 #[derive(Debug)]

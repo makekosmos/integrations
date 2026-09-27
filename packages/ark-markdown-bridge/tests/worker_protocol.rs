@@ -772,6 +772,232 @@ fn missing_object_deletes_the_verified_file_not_a_stale_path() {
         .is_some());
 }
 
+#[test]
+fn tombstoned_object_deletes_the_verified_file() {
+    // list_objects returns soft-deleted rows: an object whose deleted_at is
+    // set is gone for sync purposes. Its verified projection must be removed
+    // and provenance recorded as missing — the same as an absent object —
+    // instead of being re-rendered as live content.
+    let temp = tempfile::tempdir().unwrap();
+    let vault = temp.path().join("vault");
+    let state_root = temp.path().join("state");
+    std::fs::create_dir(&vault).unwrap();
+    std::fs::create_dir(&state_root).unwrap();
+    let vault_root = vault.to_string_lossy().into_owned();
+    let state_root = state_root.to_string_lossy().into_owned();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ark-markdown-bridge"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    writeln!(input, "{}", json!({"method":"worker.bootstrap","package_id":"ark-markdown-bridge","version":"1.0.0","hash":"a","pid":1,"api_version":1,"generation":1,"correlation_id":"test","token":"token","bridge_config":{"vault_root":vault_root,"state_root":state_root,"selected_types":["com.kosmos.note"],"editable_fields":["title","body"],"readonly_fields":[]}})).unwrap();
+    input.flush().unwrap();
+    assert_eq!(next(&mut output)["method"], "worker.hello");
+
+    let content = "---\nark_id: \"note-1\"\nark_type: \"com.kosmos.note\"\nark_version: \"1.0.0\"\nbridge_version: 1\ntitle: \"One\"\n---\n\nBody\n";
+    let file_hash = format!("{:x}", sha2::Sha256::digest(content.as_bytes()));
+    let state = json!({"records":{"note-1":{"path":"One-note-1.md","file_hash":file_hash,"ark_hash":"ark","conflict":null}},"last_sync":null,"conflict_count":0,"last_conflict_at":null});
+
+    let state_read = call(&mut output);
+    assert_eq!(state_read["operation"], "filesystem.read");
+    reply(
+        &mut input,
+        &state_read,
+        true,
+        json!({"bytes":STANDARD.encode(state.to_string().as_bytes())}),
+    );
+    let poll = call(&mut output);
+    reply(
+        &mut input,
+        &poll,
+        true,
+        json!([{ "name":"One-note-1.md", "kind":"file", "size": 80, "modified_ms": 1 }]),
+    );
+    let list = call(&mut output);
+    reply(
+        &mut input,
+        &list,
+        true,
+        json!([{ "name":"One-note-1.md", "kind":"file", "size": 80, "modified_ms": 1 }]),
+    );
+    let file = call(&mut output);
+    assert_eq!(file["operation"], "filesystem.read");
+    reply(
+        &mut input,
+        &file,
+        true,
+        json!({"bytes":STANDARD.encode(content.as_bytes())}),
+    );
+    let ark = call(&mut output);
+    assert_eq!(ark["operation"], "ark.read");
+    let tombstone = json!({"id":"note-1","type_id":"com.kosmos.note","type_version":"1.0.0","title":"One","props_json":{},"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Deleted"}]}]},"created_at":"x","updated_at":"x","deleted_at":"2026-09-20T00:00:00Z"});
+    reply(&mut input, &ark, true, json!([tombstone]));
+
+    let deletion = call(&mut output);
+    assert_eq!(
+        deletion["operation"], "filesystem.delete",
+        "a soft-deleted object must remove its verified projection"
+    );
+    assert_eq!(
+        deletion["params"]["path"],
+        format!("{}{}One-note-1.md", vault_root, std::path::MAIN_SEPARATOR)
+    );
+    reply(&mut input, &deletion, true, Value::Null);
+    let provenance = call(&mut output);
+    assert_eq!(provenance["operation"], "ark.write");
+    assert_eq!(provenance["params"]["params"]["state"], "missing");
+    reply(&mut input, &provenance, true, Value::Null);
+    let state_write = call(&mut output);
+    reply(&mut input, &state_write, true, Value::Null);
+
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.stop","generation":1,"reason":"test"})
+    )
+    .unwrap();
+    input.flush().unwrap();
+    assert!(child
+        .wait_timeout(Duration::from_secs(5))
+        .unwrap()
+        .is_some());
+}
+
+#[test]
+fn tombstoned_object_does_not_resurrect_a_file() {
+    // With no baseline record and no vault file, a soft-deleted object must
+    // not produce a Markdown projection: the sync goes straight to durable
+    // state instead of writing a file for deleted content.
+    let temp = tempfile::tempdir().unwrap();
+    let vault = temp.path().join("vault");
+    let state_root = temp.path().join("state");
+    std::fs::create_dir(&vault).unwrap();
+    std::fs::create_dir(&state_root).unwrap();
+    let vault_root = vault.to_string_lossy().into_owned();
+    let state_root = state_root.to_string_lossy().into_owned();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ark-markdown-bridge"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    writeln!(input, "{}", json!({"method":"worker.bootstrap","package_id":"ark-markdown-bridge","version":"1.0.0","hash":"a","pid":1,"api_version":1,"generation":1,"correlation_id":"test","token":"token","bridge_config":{"vault_root":vault_root,"state_root":state_root,"selected_types":["com.kosmos.note"],"editable_fields":["title","body"],"readonly_fields":[]}})).unwrap();
+    input.flush().unwrap();
+    assert_eq!(next(&mut output)["method"], "worker.hello");
+
+    let state_read = call(&mut output);
+    assert_eq!(state_read["operation"], "filesystem.read");
+    reply(&mut input, &state_read, false, Value::Null);
+    let poll = call(&mut output);
+    assert_eq!(poll["operation"], "filesystem.poll");
+    reply(&mut input, &poll, true, json!([]));
+    let list = call(&mut output);
+    reply(&mut input, &list, true, json!([]));
+    let ark = call(&mut output);
+    assert_eq!(ark["operation"], "ark.read");
+    let tombstone = json!({"id":"note-1","type_id":"com.kosmos.note","type_version":"1.0.0","title":"One","props_json":{},"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Deleted"}]}]},"created_at":"x","updated_at":"x","deleted_at":"2026-09-20T00:00:00Z"});
+    reply(&mut input, &ark, true, json!([tombstone]));
+
+    let after = call(&mut output);
+    assert_eq!(
+        after["operation"], "filesystem.write",
+        "expected durable state write, got {}",
+        after["operation"]
+    );
+    assert_eq!(
+        after["params"]["path"],
+        format!("{}{}state.json", state_root, std::path::MAIN_SEPARATOR),
+        "a tombstoned object must not write a vault file"
+    );
+    reply(&mut input, &after, true, Value::Null);
+
+    writeln!(
+        input,
+        "{}",
+        json!({"method":"worker.stop","generation":1,"reason":"test"})
+    )
+    .unwrap();
+    input.flush().unwrap();
+    assert!(child
+        .wait_timeout(Duration::from_secs(5))
+        .unwrap()
+        .is_some());
+}
+
+#[test]
+fn heartbeat_continues_while_a_broker_call_is_pending() {
+    // The supervisor reaps a worker after ~60s without worker.heartbeat. A
+    // sync blocked inside a broker call must still heartbeat: leave the first
+    // call unanswered and require worker.heartbeat within ~30s of silence.
+    let temp = tempfile::tempdir().unwrap();
+    let vault = temp.path().join("vault");
+    let state_root = temp.path().join("state");
+    std::fs::create_dir(&vault).unwrap();
+    std::fs::create_dir(&state_root).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ark-markdown-bridge"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    writeln!(input, "{}", json!({"method":"worker.bootstrap","package_id":"ark-markdown-bridge","version":"1.0.0","hash":"a","pid":1,"api_version":1,"generation":1,"correlation_id":"test","token":"token","bridge_config":{"vault_root":vault.to_string_lossy().into_owned(),"state_root":state_root.to_string_lossy().into_owned(),"selected_types":["com.kosmos.note"],"editable_fields":["title","body"],"readonly_fields":[]}})).unwrap();
+    input.flush().unwrap();
+
+    // Read worker stdout on a channel so the test can wait for a heartbeat
+    // without blocking forever when none comes.
+    let (sender, receiver) = std::sync::mpsc::channel::<Value>();
+    let stdout = child.stdout.take().unwrap();
+    std::thread::spawn(move || {
+        let mut output = BufReader::new(stdout);
+        let mut line = String::new();
+        while output.read_line(&mut line).unwrap_or(0) > 0 {
+            if let Ok(value) = serde_json::from_str(&line) {
+                if sender.send(value).is_err() {
+                    break;
+                }
+            }
+            line.clear();
+        }
+    });
+
+    let next_line = |wait: Duration| -> Option<Value> { receiver.recv_timeout(wait).ok() };
+    assert_eq!(
+        next_line(Duration::from_secs(5)).unwrap()["method"],
+        "worker.hello"
+    );
+    let pending = next_line(Duration::from_secs(5)).unwrap();
+    assert_eq!(pending["method"], "worker.call");
+    // Deliberately unanswered: liveness must not depend on sync progress.
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let saw_heartbeat = loop {
+        match next_line(Duration::from_secs(35)) {
+            Some(value) if value["method"] == "worker.heartbeat" => break true,
+            Some(_) => {
+                if std::time::Instant::now() > deadline {
+                    break false;
+                }
+            }
+            None => break false,
+        }
+    };
+    assert!(
+        saw_heartbeat,
+        "no worker.heartbeat within 30s while a broker call was pending"
+    );
+
+    drop(input);
+    assert!(child
+        .wait_timeout(Duration::from_secs(5))
+        .unwrap()
+        .is_some());
+}
+
 trait WaitTimeout {
     fn wait_timeout(
         &mut self,
