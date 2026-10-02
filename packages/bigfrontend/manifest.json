@@ -3,7 +3,7 @@
   "id": "com.kosmos.bigfrontend",
   "name": "BigFrontend",
   "description": "Imports public BigFrontend submissions into ARK.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "kind": "source",
   "engine_api": ">=1.0.0",
   "entrypoint": "bigfrontend-worker.exe",
@@ -56,7 +56,7 @@
       {
         "key": "username",
         "label": "Имя пользователя",
-        "kind": "text",
+        "kind": "username",
         "description": "Публичное имя пользователя BigFrontend.",
         "required": true
       }

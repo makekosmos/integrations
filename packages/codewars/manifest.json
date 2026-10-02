@@ -3,7 +3,7 @@
   "id": "com.kosmos.codewars",
   "name": "Codewars",
   "description": "Imports public Codewars profile and completed kata into ARK.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "kind": "source",
   "engine_api": ">=1.0.0",
   "entrypoint": "codewars-worker.exe",
@@ -71,7 +71,7 @@
       {
         "key": "username",
         "label": "Имя пользователя",
-        "kind": "text",
+        "kind": "username",
         "description": "Публичное имя пользователя Codewars.",
         "required": true
       }
