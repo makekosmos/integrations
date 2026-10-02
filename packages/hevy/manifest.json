@@ -3,7 +3,7 @@
   "id": "com.kosmos.hevy",
   "name": "Hevy",
   "description": "Imports Hevy workouts into ARK.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "kind": "source",
   "engine_api": ">=1.0.0",
   "entrypoint": "hevy-worker.exe",
@@ -56,7 +56,7 @@
       {
         "key": "api_key",
         "label": "API-ключ",
-        "kind": "secret",
+        "kind": "api_key",
         "description": "Ключ API Hevy из настроек разработчика.",
         "required": true,
         "injection": {

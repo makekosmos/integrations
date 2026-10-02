@@ -3,7 +3,7 @@
   "id": "com.kosmos.greatfrontend",
   "name": "GreatFrontEnd",
   "description": "Imports GreatFrontEnd progress into ARK.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "kind": "source",
   "engine_api": ">=1.0.0",
   "entrypoint": "greatfrontend-worker.exe",
@@ -56,7 +56,7 @@
       {
         "key": "session",
         "label": "Сессия GreatFrontEnd",
-        "kind": "secret",
+        "kind": "token",
         "description": "Секретная browser-сессия GreatFrontEnd.",
         "required": true,
         "injection": {

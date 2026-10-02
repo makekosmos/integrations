@@ -3,7 +3,7 @@
   "id": "com.kosmos.leetcode",
   "name": "LeetCode",
   "description": "Imports LeetCode submissions and progress into ARK.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "kind": "source",
   "engine_api": ">=1.0.0",
   "entrypoint": "leetcode-worker.exe",
@@ -71,7 +71,7 @@
       {
         "key": "session",
         "label": "Сессия LeetCode",
-        "kind": "secret",
+        "kind": "token",
         "description": "Сессионные cookies LeetCode.",
         "required": true,
         "injection": {
