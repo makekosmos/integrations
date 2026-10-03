@@ -12,21 +12,32 @@
   "permissions": [
     {
       "capability": "network",
-      "scopes": ["https://www.codewars.com/"]
+      "scopes": [
+        "https://www.codewars.com/"
+      ]
     },
     {
       "capability": "ark.write",
-      "scopes": ["upsert_object_type", "upsert_object", "set_sync_kv"]
+      "scopes": [
+        "upsert_object_type",
+        "upsert_object",
+        "set_sync_kv"
+      ]
     },
     {
       "capability": "ark.read",
-      "scopes": ["list_objects", "get_sync_kv"]
+      "scopes": [
+        "list_objects",
+        "get_sync_kv"
+      ]
     }
   ],
   "targets": [
     {
       "runtime": "worker",
-      "os": ["windows"]
+      "os": [
+        "windows"
+      ]
     }
   ],
   "data": {
@@ -34,7 +45,11 @@
       {
         "type": "coding_profile_obj",
         "versions": "*",
-        "actions": ["read", "create", "update"],
+        "actions": [
+          "read",
+          "create",
+          "update"
+        ],
         "fields": {
           "read": [],
           "write": []
@@ -43,7 +58,10 @@
       {
         "type": "coding_submission_obj",
         "versions": "*",
-        "actions": ["create", "update"],
+        "actions": [
+          "create",
+          "update"
+        ],
         "fields": {
           "read": [],
           "write": []
@@ -79,5 +97,13 @@
     "schedule": {
       "interval_seconds": 86400
     }
+  },
+  "store": {
+    "description": "Импорт профиля и завершенных kata Codewars в ARK.",
+    "categories": [
+      "integrations",
+      "coding"
+    ],
+    "connects_to": "external.codewars"
   }
 }

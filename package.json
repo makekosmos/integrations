@@ -1,0 +1,11 @@
+{
+  "name": "kosmos-integrations",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test scripts/*.test.mjs",
+    "validate": "node scripts/validate-manifests.mjs",
+    "build": "node scripts/build-packages.mjs --out out",
+    "catalog": "node scripts/build-catalog.mjs --packages out/packages.json --external-apps external-apps.json --out out"
+  }
+}

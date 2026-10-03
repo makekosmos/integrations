@@ -21,17 +21,25 @@
     },
     {
       "capability": "ark.write",
-      "scopes": ["upsert_object_type", "upsert_object", "set_sync_kv"]
+      "scopes": [
+        "upsert_object_type",
+        "upsert_object",
+        "set_sync_kv"
+      ]
     },
     {
       "capability": "ark.read",
-      "scopes": ["get_sync_kv"]
+      "scopes": [
+        "get_sync_kv"
+      ]
     }
   ],
   "targets": [
     {
       "runtime": "worker",
-      "os": ["windows"]
+      "os": [
+        "windows"
+      ]
     }
   ],
   "data": {
@@ -39,7 +47,10 @@
       {
         "type": "com.kosmos.huawei-health.archive",
         "versions": "^1.0.0",
-        "actions": ["create", "update"],
+        "actions": [
+          "create",
+          "update"
+        ],
         "fields": {
           "read": [],
           "write": []
@@ -100,5 +111,22 @@
     "schedule": {
       "interval_seconds": 86400
     }
+  },
+  "store": {
+    "description": "Импорт данных архива Huawei Health в ARK.",
+    "categories": [
+      "integrations"
+    ],
+    "data_compatibility": [
+      {
+        "type": "com.kosmos.huawei-health.archive",
+        "versions": "*",
+        "roles": [
+          "import"
+        ],
+        "via": "com.kosmos.huawei-health",
+        "fidelity": "lossless"
+      }
+    ]
   }
 }

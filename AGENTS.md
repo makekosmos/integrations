@@ -1,18 +1,22 @@
 # AGENTS.md — integrations
 
-Standalone integration packages (source `.kspkg` workers) split out of
-`cortex/packages`. Each package carries its own `manifest.json` and version and
-is released independently through Package Index (makekosmos/package-index).
+Single repo for first-party integration packages and the published package
+catalog. Replaces `makekosmos/package-index` + `makekosmos/store` (both
+archived after the switch): no Ed25519 signing, no envelopes, no second
+listing file. Trust model: HTTPS + GitHub Releases + pinned `sha256`/`size`
+in `catalog.json`, same as the Engine updater and native apps.
 
 ## Layout
 
 - `packages/<name>/` — one package per directory: `manifest.json`, `icon.png`,
-  Rust worker (`Cargo.toml`, `src/`, `tests/`) or TS sources. `raycast-api` is
-  a TypeScript helper package (`package.json`, no manifest).
-- `research/` — reverse-engineering notes, capture tools and investigation
-  dumps (currently `research/huawei-health/`). **This directory is gitignored
-  and must never be committed.** Anything not publishable (RE notes, session
-  captures, credentials, research dumps) goes here, not into `packages/`.
+  Rust worker (`Cargo.toml`, `src/`, `tests/`). The manifest also carries the
+  `store` block (`description`, `categories`, `connects_to`,
+  `data_compatibility`) — one source of truth per package.
+- `external-apps.json` — storefront entries for third-party apps integrations
+  connect to (validated by `scripts/manifest-schema.mjs`).
+- `scripts/` — the pipeline (`manifest-schema.mjs`, `validate-manifests.mjs`,
+  `build-packages.mjs`, `build-catalog.mjs`, `zip-utils.mjs` + tests).
+- `research/` — RE notes and captures, gitignored, never committed.
 
 ## Rules
 
@@ -20,27 +24,20 @@ is released independently through Package Index (makekosmos/package-index).
   reconstruct cortex history here.
 - Do not commit secrets, tokens, cookies, `.env`, private keys or captured
   session data. Audit new material before adding it under `packages/`.
-- `packages/ark-markdown-bridge` owns its worker code (`src/main.rs`,
-  `tests/worker_protocol.rs` — ported verbatim from cortex `runtime/`) and
-  depends only on the `kosmos-package-protocol` crate, pinned by git rev to
-  `makekosmos/cortex`. The rev pin activates once the cortex branch lands on
-  the shared cortex remote; until then a local `[patch]` or `path` override
-  pointing at a cortex checkout is needed for `cargo test`. Do not vendor
-  cortex code.
-- No GitHub Actions; local checks are the gate.
+- `.kspkg` archives contain exactly `manifest.json`, the worker exe and the
+  manifest icon — nothing else may be added.
+- `ark-markdown-bridge` depends on `kosmos-package-protocol` pinned by git rev
+  to `makekosmos/cortex`; for local `cargo test` before that rev is on the
+  remote, use a temporary `[patch]` override and remove it before committing.
+- Workflows: `quality.yml` runs on PRs (validate + script tests + cargo build
+  and test for every package + catalog dry run); `publish.yml` is manual
+  dispatch only and publishes `catalog-N` releases with `GITHUB_TOKEN` alone.
 
-## Checks (as run at import)
+## Checks
 
 ```powershell
-# Validate every manifest parses as JSON
-Get-ChildItem packages/*/manifest.json | ForEach-Object { node -e "JSON.parse(require('fs').readFileSync('$($_.FullName)','utf8'))" }
-
-# Confirm research/ is ignored
-git check-ignore -v research/huawei-health/README.md
+npm test
+node scripts/validate-manifests.mjs
+node scripts/build-packages.mjs --out out --sequence 0
+node scripts/build-catalog.mjs --packages out/packages.json --external-apps external-apps.json --sequence 1 --out out/catalog
 ```
-
-Per-package Rust crates are standalone (`cargo test` inside a package dir).
-For `ark-markdown-bridge`, `cargo test` resolves `kosmos-package-protocol`
-from `makekosmos/cortex` at the pinned rev; if that rev is not yet on the
-remote, temporarily add a `[patch."https://github.com/makekosmos/cortex"]`
-entry pointing at a local cortex checkout and remove it before committing.

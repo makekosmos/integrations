@@ -12,21 +12,32 @@
   "permissions": [
     {
       "capability": "network",
-      "scopes": ["https://api.hevyapp.com/"]
+      "scopes": [
+        "https://api.hevyapp.com/"
+      ]
     },
     {
       "capability": "ark.write",
-      "scopes": ["upsert_object_type", "upsert_object", "delete_object", "set_sync_kv"]
+      "scopes": [
+        "upsert_object_type",
+        "upsert_object",
+        "delete_object",
+        "set_sync_kv"
+      ]
     },
     {
       "capability": "ark.read",
-      "scopes": ["get_sync_kv"]
+      "scopes": [
+        "get_sync_kv"
+      ]
     }
   ],
   "targets": [
     {
       "runtime": "worker",
-      "os": ["windows"]
+      "os": [
+        "windows"
+      ]
     }
   ],
   "data": {
@@ -34,7 +45,11 @@
       {
         "type": "workout_obj",
         "versions": "*",
-        "actions": ["create", "update", "delete"],
+        "actions": [
+          "create",
+          "update",
+          "delete"
+        ],
         "fields": {
           "read": [],
           "write": []
@@ -61,7 +76,9 @@
         "required": true,
         "injection": {
           "kind": "header",
-          "origins": ["https://api.hevyapp.com/"],
+          "origins": [
+            "https://api.hevyapp.com/"
+          ],
           "name": "api-key"
         }
       }
@@ -69,5 +86,13 @@
     "schedule": {
       "interval_seconds": 21600
     }
+  },
+  "store": {
+    "description": "Импорт тренировок Hevy в ARK.",
+    "categories": [
+      "integrations",
+      "fitness"
+    ],
+    "connects_to": "external.hevy"
   }
 }

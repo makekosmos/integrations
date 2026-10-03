@@ -12,11 +12,17 @@
   "permissions": [
     {
       "capability": "ark.read",
-      "scopes": ["list_objects", "get_object"]
+      "scopes": [
+        "list_objects",
+        "get_object"
+      ]
     },
     {
       "capability": "ark.write",
-      "scopes": ["upsert_object", "external_refs.upsert"]
+      "scopes": [
+        "upsert_object",
+        "external_refs.upsert"
+      ]
     },
     {
       "capability": "filesystem.read",
@@ -30,8 +36,12 @@
   "targets": [
     {
       "runtime": "worker",
-      "os": ["windows"],
-      "arch": ["x86_64"]
+      "os": [
+        "windows"
+      ],
+      "arch": [
+        "x86_64"
+      ]
     }
   ],
   "data": {
@@ -39,10 +49,20 @@
       {
         "type": "com.kosmos.note",
         "versions": "^1.0.0",
-        "actions": ["read", "create", "update"],
+        "actions": [
+          "read",
+          "create",
+          "update"
+        ],
         "fields": {
-          "read": ["title", "body"],
-          "write": ["title", "body"]
+          "read": [
+            "title",
+            "body"
+          ],
+          "write": [
+            "title",
+            "body"
+          ]
         }
       }
     ],
@@ -52,6 +72,27 @@
         "type": "com.kosmos.note",
         "versions": "^1.0.0",
         "direction": "bidirectional-sync",
+        "fidelity": "lossless"
+      }
+    ]
+  },
+  "store": {
+    "description": "Мост между каноническими заметками ARK и Markdown-файлами.",
+    "categories": [
+      "integrations",
+      "markdown"
+    ],
+    "connects_to": "external.obsidian",
+    "data_compatibility": [
+      {
+        "type": "com.kosmos.note",
+        "versions": ">=1.0.0",
+        "roles": [
+          "import",
+          "export",
+          "sync"
+        ],
+        "via": "external.obsidian",
         "fidelity": "lossless"
       }
     ]

@@ -12,21 +12,31 @@
   "permissions": [
     {
       "capability": "network",
-      "scopes": ["https://bigfrontend.dev/"]
+      "scopes": [
+        "https://bigfrontend.dev/"
+      ]
     },
     {
       "capability": "ark.write",
-      "scopes": ["upsert_object_type", "upsert_object", "set_sync_kv"]
+      "scopes": [
+        "upsert_object_type",
+        "upsert_object",
+        "set_sync_kv"
+      ]
     },
     {
       "capability": "ark.read",
-      "scopes": ["get_sync_kv"]
+      "scopes": [
+        "get_sync_kv"
+      ]
     }
   ],
   "targets": [
     {
       "runtime": "worker",
-      "os": ["windows"]
+      "os": [
+        "windows"
+      ]
     }
   ],
   "data": {
@@ -34,7 +44,10 @@
       {
         "type": "coding_submission_obj",
         "versions": "*",
-        "actions": ["create", "update"],
+        "actions": [
+          "create",
+          "update"
+        ],
         "fields": {
           "read": [],
           "write": []
@@ -64,5 +77,13 @@
     "schedule": {
       "interval_seconds": 86400
     }
+  },
+  "store": {
+    "description": "Импорт завершенных задач BigFrontend в ARK.",
+    "categories": [
+      "integrations",
+      "coding"
+    ],
+    "connects_to": "external.bigfrontend"
   }
 }
