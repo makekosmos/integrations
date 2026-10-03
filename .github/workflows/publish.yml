@@ -3,6 +3,10 @@ name: publish
 # Manual dispatch only: a catalog release rewrites what every Engine installs,
 # so publication is an explicit, reviewed act rather than a side effect of a
 # tag push. The orchestrator runs the first publish after this change merges.
+#
+# Every release this workflow creates is a `catalog-N` release — nothing else
+# may create a GitHub release in this repo, because the Engine resolves the
+# catalog through releases/latest (see README, "Releases").
 on:
   workflow_dispatch:
     inputs:
@@ -15,17 +19,26 @@ permissions:
   contents: write
 
 jobs:
-  publish:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One leg per published platform — a .kspkg wraps a compiled worker
+          # binary. A platform belongs here only once package manifests
+          # declare it; build-packages fails otherwise.
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Read toolchain pins
         id: toolchain
-        run: node -p "const t = require('./toolchain.json'); `node=${t.node}\nrust=${t.rust}`" >> "$env:GITHUB_OUTPUT"
+        run: node -p "const t = require('./toolchain.json'); 'node=' + t.node + '\nrust=' + t.rust" >> "$env:GITHUB_OUTPUT"
         shell: pwsh
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ steps.toolchain.outputs.node }}
 
@@ -47,15 +60,65 @@ jobs:
           }
           "seq=$seq" >> "$env:GITHUB_OUTPUT"
 
-      - name: Build every package
-        run: node scripts/build-packages.mjs --out out --sequence ${{ steps.sequence.outputs.seq }}
+      - name: Build every package (${{ matrix.target }})
+        run: node scripts/build-packages.mjs --out out --sequence ${{ steps.sequence.outputs.seq }} --target ${{ matrix.target }}
+
+      - name: Upload platform artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packages-${{ matrix.target }}
+          path: |
+            out/packages.json
+            out/*.kspkg
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Read toolchain pins
+        id: toolchain
+        run: node -p "const t = require('./toolchain.json'); 'node=' + t.node + '\nrust=' + t.rust" >> "$env:GITHUB_OUTPUT"
+        shell: pwsh
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ steps.toolchain.outputs.node }}
+
+      - name: Resolve catalog sequence
+        id: sequence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $seq = "${{ inputs.sequence }}"
+          if (-not $seq) {
+            $prev = gh api repos/makekosmos/integrations/releases/latest --jq '.tag_name' 2>$null
+            if ($prev -match '^catalog-(\d+)$') { $seq = [int]$Matches[1] + 1 } else { $seq = 1 }
+          }
+          "seq=$seq" >> "$env:GITHUB_OUTPUT"
+
+      # Each leg lands in out/packages-<target>/ so the packages.json files
+      # do not collide; build-catalog merges them via the --packages list.
+      - name: Download platform artifacts
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: packages-*
+          path: out
 
       - name: Build catalog
-        run: node scripts/build-catalog.mjs --packages out/packages.json --external-apps external-apps.json --sequence ${{ steps.sequence.outputs.seq }} --out out/catalog
+        run: node scripts/build-catalog.mjs --packages (Get-ChildItem out -Recurse -Filter packages.json | ForEach-Object FullName | Join-String -Separator ',') --external-apps external-apps.json --sequence ${{ steps.sequence.outputs.seq }} --out out/catalog
+        shell: pwsh
 
       - name: Publish release catalog-${{ steps.sequence.outputs.seq }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "catalog-${{ steps.sequence.outputs.seq }}"
-          gh release create $tag --title $tag --notes "Integrations catalog ${{ steps.sequence.outputs.seq }}" out/catalog/catalog.json out/catalog/SHA256SUMS.txt out/catalog/icon-*.png out/*.kspkg
+          $assets = @(
+            "out/catalog/catalog.json",
+            "out/catalog/SHA256SUMS.txt"
+          ) + (Get-ChildItem out/catalog -Filter 'icon-*.png' | ForEach-Object FullName) +
+              (Get-ChildItem out -Recurse -Filter '*.kspkg' | ForEach-Object FullName)
+          gh release create $tag --title $tag --notes "Integrations catalog ${{ steps.sequence.outputs.seq }}" @assets

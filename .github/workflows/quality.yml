@@ -11,16 +11,31 @@ concurrency:
 
 jobs:
   packages:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A .kspkg wraps a compiled worker binary, so coverage is per
+          # platform. The catalog currently ships only what manifests declare
+          # (windows/x86_64); the macOS leg proves the workers still compile
+          # there so adding a catalog platform stays a tooling change, not a
+          # port.
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: true
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            build: false
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Read toolchain pins
         id: toolchain
-        run: node -p "const t = require('./toolchain.json'); `node=${t.node}\nrust=${t.rust}`" >> "$env:GITHUB_OUTPUT"
+        run: node -p "const t = require('./toolchain.json'); 'node=' + t.node + '\nrust=' + t.rust" >> "$env:GITHUB_OUTPUT"
         shell: pwsh
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ steps.toolchain.outputs.node }}
 
@@ -34,15 +49,17 @@ jobs:
         run: npm test
 
       - name: Build every package
-        run: node scripts/build-packages.mjs --out out --sequence 0
+        if: matrix.build
+        run: node scripts/build-packages.mjs --out out --sequence 0 --target ${{ matrix.target }}
 
       - name: Test every package
         run: |
           Get-ChildItem packages -Directory | ForEach-Object {
-            cargo test --manifest-path "$($_.FullName)/Cargo.toml" --locked
+            cargo test --manifest-path "$($_.FullName)/Cargo.toml" --locked --target ${{ matrix.target }}
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
         shell: pwsh
 
       - name: Catalog dry run
+        if: matrix.build
         run: node scripts/build-catalog.mjs --packages out/packages.json --external-apps external-apps.json --sequence 1 --out out/catalog
