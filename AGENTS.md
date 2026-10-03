@@ -30,8 +30,16 @@ in `catalog.json`, same as the Engine updater and native apps.
   to `makekosmos/cortex`; for local `cargo test` before that rev is on the
   remote, use a temporary `[patch]` override and remove it before committing.
 - Workflows: `quality.yml` runs on PRs (validate + script tests + cargo build
-  and test for every package + catalog dry run); `publish.yml` is manual
-  dispatch only and publishes `catalog-N` releases with `GITHUB_TOKEN` alone.
+  and test for every package on windows + macos + catalog dry run);
+  `publish.yml` is manual dispatch only and publishes `catalog-N` releases
+  with `GITHUB_TOKEN` alone.
+- Release invariant: `releases/latest` must always resolve to a catalog
+  release — nothing else may create a GitHub release in this repo. The
+  Engine's catalog URL depends on it (README, "Releases").
+- `.kspkg` artifacts are platform-specific compiled workers, named
+  `<id>-<version>-<os>-<arch>.kspkg`. A platform ships only when every
+  manifest's `targets` declare it; `build-catalog` fails on a declared
+  platform without an artifact.
 
 ## Checks
 

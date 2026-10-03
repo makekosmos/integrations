@@ -30,15 +30,26 @@ updater and native apps already use (HTTPS + GitHub Releases + hash).
 
 - `catalog.json` — `{schema_version, sequence, issued_at, expires_at,
   packages[], external_apps[], revoked[]}`; `sequence` is monotonic.
-- `<package-id>-<version>.kspkg` — `manifest.json` + worker exe + `icon.png`.
+- `<package-id>-<version>-<os>-<arch>.kspkg` — `manifest.json` + worker exe +
+  `icon.png`. One artifact per platform the manifest's `targets` declare; the
+  catalog entry's `archives[]` points each platform at its own bytes.
 - `icon-<package-id>.png` — the Store icon for each package.
 - `SHA256SUMS.txt` — `sha256sum` lines covering every asset.
 
 The Engine reads
 `https://github.com/makekosmos/integrations/releases/latest/download/catalog.json`,
-downloads each `.kspkg`, and installs only when the pinned size and sha256
-match. `revoked` entries disable installed packages; they carry the same
-trust as the rest of the catalog.
+downloads the `.kspkg` for its platform, and installs only when the pinned
+size and sha256 match. `revoked` entries disable installed packages; they
+carry the same trust as the rest of the catalog.
+
+## Releases
+
+**Invariant: `releases/latest` must always resolve to a catalog release.**
+The Engine's catalog URL is the `releases/latest/download/catalog.json`
+redirect, so nothing else may ever create a GitHub release in this repo —
+no tag-based releases, no prereleases, no ad-hoc `gh release create`. The
+only release producer is `publish.yml` (manual dispatch). If this ever needs
+to change, pin a dedicated tag and update the Engine URL together with it.
 
 ## Publish
 
