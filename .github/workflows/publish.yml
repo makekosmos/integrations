@@ -7,6 +7,9 @@ name: publish
 # Every release this workflow creates is a `catalog-N` release — nothing else
 # may create a GitHub release in this repo, because the Engine resolves the
 # catalog through releases/latest (see README, "Releases").
+#
+# Anything non-constant reaches `run:` blocks through env: — never through
+# `${{ }}` interpolation into script text.
 on:
   workflow_dispatch:
     inputs:
@@ -19,7 +22,31 @@ permissions:
   contents: write
 
 jobs:
+  # Resolved once: the archive URLs build-packages bakes into packages.json
+  # and the release tag must be the same number, so a second resolution
+  # could race a release published in between.
+  sequence:
+    runs-on: windows-latest
+    outputs:
+      seq: ${{ steps.resolve.outputs.seq }}
+    steps:
+      - name: Resolve catalog sequence
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_SEQUENCE: ${{ inputs.sequence }}
+        run: |
+          $seq = $env:INPUT_SEQUENCE
+          if ($seq -and $seq -notmatch '^\d+$') { Write-Error "sequence must be digits"; exit 1 }
+          if (-not $seq) {
+            $prev = gh api repos/makekosmos/integrations/releases/latest --jq '.tag_name' 2>$null
+            if ($prev -match '^catalog-(\d+)$') { $seq = [int]$Matches[1] + 1 } else { $seq = 1 }
+          }
+          "seq=$seq" >> "$env:GITHUB_OUTPUT"
+        shell: pwsh
+
   build:
+    needs: sequence
     strategy:
       fail-fast: false
       matrix:
@@ -43,25 +70,20 @@ jobs:
           node-version: ${{ steps.toolchain.outputs.node }}
 
       - name: Install Rust toolchain
-        run: rustup toolchain install ${{ steps.toolchain.outputs.rust }} --profile minimal
+        env:
+          RUST_TOOLCHAIN: ${{ steps.toolchain.outputs.rust }}
+        run: rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+        shell: pwsh
 
       - name: Validate manifests and external apps
         run: node scripts/validate-manifests.mjs
 
-      - name: Resolve catalog sequence
-        id: sequence
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $seq = "${{ inputs.sequence }}"
-          if (-not $seq) {
-            $prev = gh api repos/makekosmos/integrations/releases/latest --jq '.tag_name' 2>$null
-            if ($prev -match '^catalog-(\d+)$') { $seq = [int]$Matches[1] + 1 } else { $seq = 1 }
-          }
-          "seq=$seq" >> "$env:GITHUB_OUTPUT"
-
       - name: Build every package (${{ matrix.target }})
-        run: node scripts/build-packages.mjs --out out --sequence ${{ steps.sequence.outputs.seq }} --target ${{ matrix.target }}
+        env:
+          SEQ: ${{ needs.sequence.outputs.seq }}
+          TARGET: ${{ matrix.target }}
+        run: node scripts/build-packages.mjs --out out --sequence $env:SEQ --target $env:TARGET
+        shell: pwsh
 
       - name: Upload platform artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -73,7 +95,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [sequence, build]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -87,18 +109,6 @@ jobs:
         with:
           node-version: ${{ steps.toolchain.outputs.node }}
 
-      - name: Resolve catalog sequence
-        id: sequence
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $seq = "${{ inputs.sequence }}"
-          if (-not $seq) {
-            $prev = gh api repos/makekosmos/integrations/releases/latest --jq '.tag_name' 2>$null
-            if ($prev -match '^catalog-(\d+)$') { $seq = [int]$Matches[1] + 1 } else { $seq = 1 }
-          }
-          "seq=$seq" >> "$env:GITHUB_OUTPUT"
-
       # Each leg lands in out/packages-<target>/ so the packages.json files
       # do not collide; build-catalog merges them via the --packages list.
       - name: Download platform artifacts
@@ -108,17 +118,21 @@ jobs:
           path: out
 
       - name: Build catalog
-        run: node scripts/build-catalog.mjs --packages (Get-ChildItem out -Recurse -Filter packages.json | ForEach-Object FullName | Join-String -Separator ',') --external-apps external-apps.json --sequence ${{ steps.sequence.outputs.seq }} --out out/catalog
+        env:
+          SEQ: ${{ needs.sequence.outputs.seq }}
+        run: node scripts/build-catalog.mjs --packages (Get-ChildItem out -Recurse -Filter packages.json | ForEach-Object FullName | Join-String -Separator ',') --external-apps external-apps.json --sequence $env:SEQ --out out/catalog
         shell: pwsh
 
-      - name: Publish release catalog-${{ steps.sequence.outputs.seq }}
+      - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SEQ: ${{ needs.sequence.outputs.seq }}
         run: |
-          $tag = "catalog-${{ steps.sequence.outputs.seq }}"
+          $tag = "catalog-$env:SEQ"
           $assets = @(
             "out/catalog/catalog.json",
             "out/catalog/SHA256SUMS.txt"
           ) + (Get-ChildItem out/catalog -Filter 'icon-*.png' | ForEach-Object FullName) +
               (Get-ChildItem out -Recurse -Filter '*.kspkg' | ForEach-Object FullName)
-          gh release create $tag --title $tag --notes "Integrations catalog ${{ steps.sequence.outputs.seq }}" @assets
+          gh release create $tag --title $tag --notes "Integrations catalog $env:SEQ" @assets
+        shell: pwsh

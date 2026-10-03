@@ -40,7 +40,10 @@ jobs:
           node-version: ${{ steps.toolchain.outputs.node }}
 
       - name: Install Rust toolchain
-        run: rustup toolchain install ${{ steps.toolchain.outputs.rust }} --profile minimal --component rustfmt --component clippy
+        env:
+          RUST_TOOLCHAIN: ${{ steps.toolchain.outputs.rust }}
+        run: rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal --component rustfmt --component clippy
+        shell: pwsh
 
       - name: Validate manifests and external apps
         run: node scripts/validate-manifests.mjs
@@ -50,12 +53,17 @@ jobs:
 
       - name: Build every package
         if: matrix.build
-        run: node scripts/build-packages.mjs --out out --sequence 0 --target ${{ matrix.target }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: node scripts/build-packages.mjs --out out --sequence 0 --target $env:TARGET
+        shell: pwsh
 
       - name: Test every package
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           Get-ChildItem packages -Directory | ForEach-Object {
-            cargo test --manifest-path "$($_.FullName)/Cargo.toml" --locked --target ${{ matrix.target }}
+            cargo test --manifest-path "$($_.FullName)/Cargo.toml" --locked --target $env:TARGET
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
         shell: pwsh
