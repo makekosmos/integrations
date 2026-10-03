@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Assembles the single catalog.json consumed by the Engine:
-//   packages[]     — manifest + archive_url + sha256 + size per .kspkg
+//   packages[]     — manifest + per-platform archives[] {os, arch, url,
+//                    sha256, size} — one artifact per built platform
 //   external_apps[]— storefront-only third-party app entries
 //   revoked[]      — plain catalog-trusted revocations {id, version, sha256, reason}
 // plus SHA256SUMS.txt (sha256sum format, like the native-apps releases) and the
@@ -38,6 +39,28 @@ function validSha256(value) {
   return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 }
 
+function declaredPlatforms(manifest) {
+  // Every (os, arch) pair a worker target stands behind. A target without an
+  // arch list means every arch, which no finite archive set can satisfy —
+  // so the strict coverage check below only applies to explicit pairs.
+  const declared = [];
+  for (const target of manifest.targets ?? []) {
+    if (target?.runtime !== "worker" || !Array.isArray(target.os)) continue;
+    for (const os of target.os) {
+      if (Array.isArray(target.arch)) {
+        for (const arch of target.arch) declared.push(`${os}/${arch}`);
+      } else {
+        declared.push(`${os}/*`);
+      }
+    }
+  }
+  return declared;
+}
+
+function archiveDeclared(declared, os, arch) {
+  return declared.includes(`${os}/${arch}`) || declared.includes(`${os}/*`);
+}
+
 export function buildCatalog({ packages, externalApps, sequence, issuedAt, expiresAt, revoked }) {
   if (!Number.isSafeInteger(sequence) || sequence <= 0) fail("sequence must be a positive integer");
   const issued = Date.parse(issuedAt);
@@ -48,24 +71,49 @@ export function buildCatalog({ packages, externalApps, sequence, issuedAt, expir
   if (!Array.isArray(packages) || packages.length === 0 || packages.length > MAX_PACKAGES) {
     fail("packages must be a non-empty array");
   }
-  const seen = new Set();
-  const entries = packages.map((entry) => {
-    const id = entry?.manifest?.id;
-    const version = entry?.manifest?.version;
-    if (!id || !version || seen.has(`${id}@${version}`)) fail(`duplicate or missing package identity: ${id}`);
-    seen.add(`${id}@${version}`);
-    if (!validSha256(entry.sha256) || !Number.isSafeInteger(entry.size) || entry.size <= 0) {
-      fail(`${id}: invalid sha256/size`);
+  const byRelease = new Map();
+  for (const row of packages) {
+    const id = row?.manifest?.id;
+    const version = row?.manifest?.version;
+    if (!id || !version) fail(`missing package identity: ${id}`);
+    const key = `${id}@${version}`;
+    const existing = byRelease.get(key);
+    // Rows for one release come from different platform legs of the same
+    // build — identical manifest bytes are the proof they agree.
+    if (existing && JSON.stringify(existing.manifest) !== JSON.stringify(row.manifest)) {
+      fail(`${key}: manifests differ between platform builds`);
     }
-    if (typeof entry.archive_url !== "string" || new URL(entry.archive_url).protocol !== "https:") {
-      fail(`${id}: archive_url must be HTTPS`);
+    if (!existing) byRelease.set(key, { manifest: row.manifest, archives: [] });
+    const declared = declaredPlatforms(row.manifest);
+    if (
+      typeof row.os !== "string" ||
+      typeof row.arch !== "string" ||
+      !archiveDeclared(declared, row.os, row.arch)
+    ) {
+      fail(`${key}: archive ${row.os}/${row.arch} is not declared in manifest targets`);
     }
-    return {
-      manifest: entry.manifest,
-      archive_url: entry.archive_url,
-      sha256: entry.sha256,
-      size: entry.size,
-    };
+    if (!validSha256(row.sha256) || !Number.isSafeInteger(row.size) || row.size <= 0) {
+      fail(`${key}: invalid sha256/size`);
+    }
+    if (typeof row.url !== "string" || new URL(row.url).protocol !== "https:") {
+      fail(`${key}: archive url must be HTTPS`);
+    }
+    const archives = byRelease.get(key).archives;
+    if (archives.some((a) => a.os === row.os && a.arch === row.arch)) {
+      fail(`${key}: duplicate ${row.os}/${row.arch} archive`);
+    }
+    archives.push({ os: row.os, arch: row.arch, url: row.url, sha256: row.sha256, size: row.size });
+  }
+  const entries = [...byRelease.values()].map((entry) => {
+    entry.archives.sort((a, b) => `${a.os}/${a.arch}`.localeCompare(`${b.os}/${b.arch}`));
+    const declared = declaredPlatforms(entry.manifest).filter((item) => !item.endsWith("/*"));
+    const built = new Set(entry.archives.map((a) => `${a.os}/${a.arch}`));
+    for (const platform of declared) {
+      if (!built.has(platform)) {
+        fail(`${entry.manifest.id}@${entry.manifest.version}: declared ${platform} has no archive`);
+      }
+    }
+    return entry;
   });
   if (!Array.isArray(externalApps) || externalApps.length > MAX_EXTERNAL_APPS) {
     fail("external_apps must be an array");
@@ -105,25 +153,33 @@ async function main() {
   const out = path.resolve(args.out);
   await mkdir(out, { recursive: true });
   const sequence = Number(args.sequence);
-  const builtPath = path.resolve(args.packages);
-  const built = JSON.parse(await readFile(builtPath, "utf8"));
-  if (built?.schema_version !== 1 || !Array.isArray(built.packages)) {
-    fail("packages.json: schema_version 1 document with packages is required");
+  // --packages is a comma-separated list: one packages.json per platform leg.
+  const rows = [];
+  const artifactDirs = [];
+  for (const builtPath of args.packages.split(",").map((item) => path.resolve(item))) {
+    const built = JSON.parse(await readFile(builtPath, "utf8"));
+    if (built?.schema_version !== 1 || !Array.isArray(built.packages)) {
+      fail(`${builtPath}: schema_version 1 document with packages is required`);
+    }
+    artifactDirs.push(path.dirname(builtPath));
+    rows.push(...built.packages);
   }
   const external = JSON.parse(await readFile(path.resolve(args["external-apps"]), "utf8"));
   const externalIds = validateExternalApps(external);
-  const artifactsDir = path.dirname(builtPath);
+  const seenManifests = new Set();
   const iconAssets = [];
-  for (const entry of built.packages) {
-    validateManifest(entry.manifest, { externalIds });
-    const iconName = `icon-${entry.manifest.id}.png`;
+  for (const row of rows) {
+    validateManifest(row.manifest, { externalIds });
+    if (seenManifests.has(row.manifest.id)) continue;
+    seenManifests.add(row.manifest.id);
+    const iconName = `icon-${row.manifest.id}.png`;
     // Package directories are named by provider, not manifest id, so the icon
     // is located by matching manifests.
-    await copyFile(await findIcon(repoRoot, entry.manifest.id), path.join(out, iconName));
+    await copyFile(await findIcon(repoRoot, row.manifest.id), path.join(out, iconName));
     iconAssets.push(iconName);
   }
   const catalog = buildCatalog({
-    packages: built.packages,
+    packages: rows,
     externalApps: external.external_apps,
     sequence,
     issuedAt: args["issued-at"] ?? new Date().toISOString(),
@@ -133,8 +189,18 @@ async function main() {
   const catalogBytes = Buffer.from(`${JSON.stringify(catalog, null, 2)}\n`, "utf8");
   await writeFile(path.join(out, "catalog.json"), catalogBytes);
   const sums = [];
-  for (const name of [...built.packages.map((entry) => entry.artifact), ...iconAssets].sort()) {
-    const bytes = await readFile(path.join(out, name)).catch(() => readFile(path.join(artifactsDir, name)));
+  for (const row of rows) {
+    const name = row.artifact;
+    let bytes;
+    for (const dir of artifactDirs) {
+      bytes = await readFile(path.join(dir, name)).catch(() => undefined);
+      if (bytes) break;
+    }
+    if (!bytes) fail(`${name}: built artifact not found next to any packages.json`);
+    sums.push(`${hash(bytes)}  ${name}`);
+  }
+  for (const name of iconAssets.sort()) {
+    const bytes = await readFile(path.join(out, name));
     sums.push(`${hash(bytes)}  ${name}`);
   }
   sums.push(`${hash(catalogBytes)}  catalog.json`);

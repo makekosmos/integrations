@@ -44,12 +44,16 @@ function manifest(id) {
   };
 }
 
-function entry(id, sha256 = "a".repeat(64)) {
+function entry(id, sha256 = "a".repeat(64), platform = { os: "windows", arch: "x86_64" }) {
+  const artifact = `${id}-0.1.0-${platform.os}-${platform.arch}.kspkg`;
   return {
     manifest: manifest(id),
-    archive_url: `https://github.com/makekosmos/integrations/releases/download/catalog-1/${id}-0.1.0.kspkg`,
+    os: platform.os,
+    arch: platform.arch,
+    url: `https://github.com/makekosmos/integrations/releases/download/catalog-1/${artifact}`,
     sha256,
     size: 1234,
+    artifact,
   };
 }
 
@@ -79,7 +83,7 @@ test("buildCatalog rejects duplicate identities and non-HTTPS urls", () => {
     }),
   );
   const bad = entry("com.kosmos.b");
-  bad.archive_url = "http://example.com/x.kspkg";
+  bad.url = "http://example.com/x.kspkg";
   assert.throws(() =>
     buildCatalog({
       packages: [bad],
@@ -135,15 +139,21 @@ test("catalog build runs end to end against stub packages.json", async () => {
         packages: [
           {
             manifest: real,
-            archive_url: `https://github.com/makekosmos/integrations/releases/download/catalog-7/${real.id}-${real.version}.kspkg`,
+            os: "windows",
+            arch: "x86_64",
+            url: `https://github.com/makekosmos/integrations/releases/download/catalog-7/${real.id}-${real.version}-windows-x86_64.kspkg`,
             sha256: "c".repeat(64),
             size: 5,
-            artifact: `${real.id}-${real.version}.kspkg`,
+            artifact: `${real.id}-${real.version}-windows-x86_64.kspkg`,
           },
         ],
       }),
     );
-    await writeFile(path.join(out, `${real.id}-${real.version}.kspkg`), "bytes");
+    // The artifact lives next to its packages.json, as a platform leg emits it.
+    await writeFile(
+      path.join(dir, `${real.id}-${real.version}-windows-x86_64.kspkg`),
+      "bytes",
+    );
     execFileSync(process.execPath, [
       path.join(root, "scripts", "build-catalog.mjs"),
       "--packages",
@@ -173,4 +183,50 @@ test("catalog build runs end to end against stub packages.json", async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("buildCatalog merges per-platform rows into one archives[] entry", () => {
+  const catalog = buildCatalog({
+    packages: [
+      entry("com.kosmos.a", "a".repeat(64), { os: "windows", arch: "x86_64" }),
+      // Same release built on a second platform leg: identical manifest is
+      // required, a different one fails.
+      { ...entry("com.kosmos.a", "b".repeat(64), { os: "windows", arch: "arm64" }) },
+    ],
+    externalApps: [],
+    sequence: 1,
+    issuedAt: "2026-01-01T00:00:00Z",
+    expiresAt: "2027-01-01T00:00:00Z",
+  });
+  assert.equal(catalog.packages.length, 1);
+  assert.deepEqual(
+    catalog.packages[0].archives.map((item) => `${item.os}/${item.arch}`),
+    ["windows/arm64", "windows/x86_64"],
+  );
+});
+
+test("buildCatalog rejects undeclared or unbuilt platforms", () => {
+  const foreign = entry("com.kosmos.a", "a".repeat(64), { os: "macos", arch: "arm64" });
+  assert.throws(() =>
+    buildCatalog({
+      packages: [foreign],
+      externalApps: [],
+      sequence: 1,
+      issuedAt: "2026-01-01T00:00:00Z",
+      expiresAt: "2027-01-01T00:00:00Z",
+    }),
+  );
+  const declared = entry("com.kosmos.a");
+  declared.manifest.targets = [
+    { runtime: "worker", os: ["windows"], arch: ["x86_64", "arm64"] },
+  ];
+  assert.throws(() =>
+    buildCatalog({
+      packages: [declared],
+      externalApps: [],
+      sequence: 1,
+      issuedAt: "2026-01-01T00:00:00Z",
+      expiresAt: "2027-01-01T00:00:00Z",
+    }),
+  );
 });

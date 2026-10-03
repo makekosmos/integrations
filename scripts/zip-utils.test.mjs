@@ -206,3 +206,25 @@ test("readZip bounds inflate output by the declared uncompressed size", async ()
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// Determinism is why this module exists at all: the catalog pins each
+// .kspkg by sha256, so two builds of the same package must produce the same
+// bytes (stored method, zeroed DOS timestamps, caller-ordered entries).
+test("writeZip is byte-identical across runs", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "zip-utils-"));
+  try {
+    const entries = [
+      { name: "manifest.json", data: Buffer.from("{}") },
+      { name: "worker.exe", data: Buffer.alloc(4096, 7) },
+      { name: "icon.png", data: Buffer.from([0x89, 0x50, 0x4e, 0x47]) },
+    ];
+    const first = path.join(dir, "first.zip");
+    const second = path.join(dir, "second.zip");
+    writeZip(first, entries);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    writeZip(second, entries);
+    assert.deepEqual(await readFile(first), await readFile(second));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -36,6 +36,9 @@
       "runtime": "worker",
       "os": [
         "windows"
+      ],
+      "arch": [
+        "x86_64"
       ]
     }
   ],
