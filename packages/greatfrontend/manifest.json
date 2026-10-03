@@ -12,21 +12,34 @@
   "permissions": [
     {
       "capability": "network",
-      "scopes": ["https://www.greatfrontend.com/"]
+      "scopes": [
+        "https://www.greatfrontend.com/"
+      ]
     },
     {
       "capability": "ark.write",
-      "scopes": ["upsert_object_type", "upsert_object", "set_sync_kv"]
+      "scopes": [
+        "upsert_object_type",
+        "upsert_object",
+        "set_sync_kv"
+      ]
     },
     {
       "capability": "ark.read",
-      "scopes": ["get_sync_kv"]
+      "scopes": [
+        "get_sync_kv"
+      ]
     }
   ],
   "targets": [
     {
       "runtime": "worker",
-      "os": ["windows"]
+      "os": [
+        "windows"
+      ],
+      "arch": [
+        "x86_64"
+      ]
     }
   ],
   "data": {
@@ -34,7 +47,10 @@
       {
         "type": "coding_submission_obj",
         "versions": "*",
-        "actions": ["create", "update"],
+        "actions": [
+          "create",
+          "update"
+        ],
         "fields": {
           "read": [],
           "write": []
@@ -61,18 +77,30 @@
         "required": true,
         "injection": {
           "kind": "cookies",
-          "origins": ["https://www.greatfrontend.com/"]
+          "origins": [
+            "https://www.greatfrontend.com/"
+          ]
         }
       }
     ],
     "login": {
       "start_url": "https://www.greatfrontend.com/login",
       "completion_url": "https://www.greatfrontend.com/profile/progress",
-      "allowed_cookie_names": ["supabase-auth-token"],
+      "allowed_cookie_names": [
+        "supabase-auth-token"
+      ],
       "secret_setting": "session"
     },
     "schedule": {
       "interval_seconds": 86400
     }
+  },
+  "store": {
+    "description": "Импорт прогресса GreatFrontEnd в ARK.",
+    "categories": [
+      "integrations",
+      "coding"
+    ],
+    "connects_to": "external.greatfrontend"
   }
 }

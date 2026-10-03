@@ -1,0 +1,73 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A .kspkg wraps a compiled worker binary, so coverage is per
+          # platform. The catalog currently ships only what manifests declare
+          # (windows/x86_64); the macOS leg proves the workers still compile
+          # there so adding a catalog platform stays a tooling change, not a
+          # port.
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: true
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            build: false
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Read toolchain pins
+        id: toolchain
+        run: node -p "const t = require('./toolchain.json'); 'node=' + t.node + '\nrust=' + t.rust" >> "$env:GITHUB_OUTPUT"
+        shell: pwsh
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ steps.toolchain.outputs.node }}
+
+      - name: Install Rust toolchain
+        env:
+          RUST_TOOLCHAIN: ${{ steps.toolchain.outputs.rust }}
+        run: rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal --component rustfmt --component clippy
+        shell: pwsh
+
+      - name: Validate manifests and external apps
+        run: node scripts/validate-manifests.mjs
+
+      - name: Script tests
+        run: npm test
+
+      - name: Build every package
+        if: matrix.build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: node scripts/build-packages.mjs --out out --sequence 0 --target $env:TARGET
+        shell: pwsh
+
+      - name: Test every package
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          Get-ChildItem packages -Directory | ForEach-Object {
+            cargo test --manifest-path "$($_.FullName)/Cargo.toml" --locked --target $env:TARGET
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+        shell: pwsh
+
+      - name: Catalog dry run
+        if: matrix.build
+        run: node scripts/build-catalog.mjs --packages out/packages.json --external-apps external-apps.json --sequence 1 --out out/catalog

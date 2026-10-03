@@ -12,21 +12,35 @@
   "permissions": [
     {
       "capability": "network",
-      "scopes": ["https://api.track.toggl.com/"]
+      "scopes": [
+        "https://api.track.toggl.com/"
+      ]
     },
     {
       "capability": "ark.write",
-      "scopes": ["upsert_object_type", "upsert_object", "delete_object", "set_sync_kv"]
+      "scopes": [
+        "upsert_object_type",
+        "upsert_object",
+        "delete_object",
+        "set_sync_kv"
+      ]
     },
     {
       "capability": "ark.read",
-      "scopes": ["get_sync_kv"]
+      "scopes": [
+        "get_sync_kv"
+      ]
     }
   ],
   "targets": [
     {
       "runtime": "worker",
-      "os": ["windows"]
+      "os": [
+        "windows"
+      ],
+      "arch": [
+        "x86_64"
+      ]
     }
   ],
   "data": {
@@ -34,7 +48,11 @@
       {
         "type": "time_entry_obj",
         "versions": "*",
-        "actions": ["create", "update", "delete"],
+        "actions": [
+          "create",
+          "update",
+          "delete"
+        ],
         "fields": {
           "read": [],
           "write": []
@@ -61,7 +79,9 @@
         "required": true,
         "injection": {
           "kind": "basic",
-          "origins": ["https://api.track.toggl.com/"],
+          "origins": [
+            "https://api.track.toggl.com/"
+          ],
           "password": "api_token"
         }
       }
@@ -69,5 +89,13 @@
     "schedule": {
       "interval_seconds": 3600
     }
+  },
+  "store": {
+    "description": "Импорт записей времени Toggl Track в ARK.",
+    "categories": [
+      "integrations",
+      "time-tracking"
+    ],
+    "connects_to": "external.toggl"
   }
 }

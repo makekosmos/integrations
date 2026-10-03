@@ -12,21 +12,35 @@
   "permissions": [
     {
       "capability": "network",
-      "scopes": ["https://leetcode.com/"]
+      "scopes": [
+        "https://leetcode.com/"
+      ]
     },
     {
       "capability": "ark.write",
-      "scopes": ["upsert_object_type", "upsert_object", "set_sync_kv"]
+      "scopes": [
+        "upsert_object_type",
+        "upsert_object",
+        "set_sync_kv"
+      ]
     },
     {
       "capability": "ark.read",
-      "scopes": ["list_objects", "get_sync_kv"]
+      "scopes": [
+        "list_objects",
+        "get_sync_kv"
+      ]
     }
   ],
   "targets": [
     {
       "runtime": "worker",
-      "os": ["windows"]
+      "os": [
+        "windows"
+      ],
+      "arch": [
+        "x86_64"
+      ]
     }
   ],
   "data": {
@@ -34,7 +48,11 @@
       {
         "type": "coding_submission_obj",
         "versions": "*",
-        "actions": ["read", "create", "update"],
+        "actions": [
+          "read",
+          "create",
+          "update"
+        ],
         "fields": {
           "read": [],
           "write": []
@@ -43,7 +61,10 @@
       {
         "type": "coding_profile_obj",
         "versions": "*",
-        "actions": ["create", "update"],
+        "actions": [
+          "create",
+          "update"
+        ],
         "fields": {
           "read": [],
           "write": []
@@ -76,7 +97,9 @@
         "required": true,
         "injection": {
           "kind": "cookies",
-          "origins": ["https://leetcode.com/"],
+          "origins": [
+            "https://leetcode.com/"
+          ],
           "method": "post_json",
           "headers": {
             "origin": "https://leetcode.com",
@@ -92,11 +115,22 @@
     "login": {
       "start_url": "https://leetcode.com/accounts/login/",
       "completion_url": "https://leetcode.com/",
-      "allowed_cookie_names": ["LEETCODE_SESSION", "csrftoken"],
+      "allowed_cookie_names": [
+        "LEETCODE_SESSION",
+        "csrftoken"
+      ],
       "secret_setting": "session"
     },
     "schedule": {
       "interval_seconds": 86400
     }
+  },
+  "store": {
+    "description": "Импорт задач и отправок LeetCode в ARK.",
+    "categories": [
+      "integrations",
+      "coding"
+    ],
+    "connects_to": "external.leetcode"
   }
 }

@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "external_apps": [
+    {
+      "id": "external.bigfrontend",
+      "name": "BigFrontend",
+      "publisher": "BigFrontend",
+      "publisher_tier": "verified",
+      "description": "Платформа задач по JavaScript и веб-разработке.",
+      "categories": ["education", "coding"],
+      "platforms": ["windows"],
+      "official_url": "https://bigfrontend.dev",
+      "icon_url": null,
+      "data_compatibility": []
+    },
+    {
+      "id": "external.greatfrontend",
+      "name": "GreatFrontEnd",
+      "publisher": "GreatFrontEnd",
+      "publisher_tier": "verified",
+      "description": "Платформа для подготовки к собеседованиям по frontend-разработке.",
+      "categories": ["education", "coding"],
+      "platforms": ["windows"],
+      "official_url": "https://www.greatfrontend.com",
+      "icon_url": null,
+      "data_compatibility": []
+    },
+    {
+      "id": "external.leetcode",
+      "name": "LeetCode",
+      "publisher": "LeetCode",
+      "publisher_tier": "verified",
+      "description": "Платформа задач и подготовки к техническим собеседованиям.",
+      "categories": ["education", "coding"],
+      "platforms": ["windows"],
+      "official_url": "https://leetcode.com",
+      "icon_url": null,
+      "data_compatibility": []
+    },
+    {
+      "id": "external.codewars",
+      "name": "Codewars",
+      "publisher": "Codewars",
+      "publisher_tier": "verified",
+      "description": "Платформа практики программирования через kata.",
+      "categories": ["education", "coding"],
+      "platforms": ["windows"],
+      "official_url": "https://www.codewars.com",
+      "icon_url": null,
+      "data_compatibility": []
+    },
+    {
+      "id": "external.hevy",
+      "name": "Hevy",
+      "publisher": "Hevy",
+      "publisher_tier": "verified",
+      "description": "Трекер тренировок и силовых упражнений.",
+      "categories": ["health", "fitness"],
+      "platforms": ["windows"],
+      "official_url": "https://www.hevyapp.com",
+      "icon_url": null,
+      "data_compatibility": []
+    },
+    {
+      "id": "external.toggl",
+      "name": "Toggl Track",
+      "publisher": "Toggl",
+      "publisher_tier": "verified",
+      "description": "Трекер времени и учета рабочих часов.",
+      "categories": ["productivity", "time-tracking"],
+      "platforms": ["windows"],
+      "official_url": "https://toggl.com/track",
+      "icon_url": null,
+      "data_compatibility": []
+    },
+    {
+      "id": "external.obsidian",
+      "name": "Obsidian",
+      "publisher": "Dynalist Inc.",
+      "publisher_tier": "verified",
+      "description": "Markdown-редактор для работы с заметками через ARK bridge.",
+      "categories": ["notes", "markdown"],
+      "platforms": ["windows", "macos", "linux", "ios", "android"],
+      "official_url": "https://obsidian.md/download",
+      "icon_url": null,
+      "data_compatibility": [
+        { "type": "com.kosmos.note", "versions": ">=1.0.0", "roles": ["import", "export"], "via": "external.obsidian", "fidelity": "lossy" }
+      ]
+    }
+  ]
+}
