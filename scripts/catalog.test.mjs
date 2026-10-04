@@ -340,3 +340,28 @@ test("buildCatalog rejects undeclared or unbuilt platforms", () => {
     }),
   );
 });
+
+test("manifest worker targets are limited to buildable os/arch values", async () => {
+  const { validateManifest, validateExternalApps } = await import("./manifest-schema.mjs");
+  const externalIds = validateExternalApps(
+    JSON.parse(await readFile(path.join(root, "external-apps.json"), "utf8")),
+  );
+  // A declared platform with no arch list is exempt from catalog coverage —
+  // so an unbuildable os must be rejected here, before it can ship.
+  for (const targets of [
+    [{ runtime: "worker", os: ["windows", "amiga"] }],
+    [{ runtime: "worker", os: ["windows"], arch: ["x86_64", "mips"] }],
+    [{ runtime: "worker", os: [] }],
+    [{ runtime: "worker", os: ["ios"] }],
+    [{ runtime: "worker", os: "windows" }],
+    ["windows"],
+    [],
+  ]) {
+    const bad = manifest("com.kosmos.a");
+    bad.targets = targets;
+    assert.throws(() => validateManifest(bad, { externalIds }), /worker target|targets/);
+  }
+  const good = manifest("com.kosmos.a");
+  good.targets = [{ runtime: "worker", os: ["windows", "macos"], arch: ["x86_64", "arm64"] }];
+  validateManifest(good, { externalIds });
+});

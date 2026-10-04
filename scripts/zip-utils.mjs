@@ -39,6 +39,7 @@ export function readZip(zipPath) {
       throw new Error(`zip: bad central dir header at ${offset}`);
     }
     const compMethod = buf.readUInt16LE(offset + 10);
+    const crc = buf.readUInt32LE(offset + 16);
     const compSize = buf.readUInt32LE(offset + 20);
     const uncompSize = buf.readUInt32LE(offset + 24);
     const nameLen = buf.readUInt16LE(offset + 28);
@@ -78,6 +79,12 @@ export function readZip(zipPath) {
     }
     if (data.length !== uncompSize) {
       throw new Error(`zip: size mismatch for ${name}: declared ${uncompSize}, decoded ${data.length}`);
+    }
+    // The central-directory CRC32 is the only integrity check the format
+    // gives us: without it a corrupted or swapped payload whose decoded
+    // length still matches the declared size is accepted silently.
+    if (crc32(data) !== crc) {
+      throw new Error(`zip: crc mismatch for ${name}`);
     }
     entries.push({ name, isDir: name.endsWith("/"), data });
     offset += 46 + nameLen + extraLen + commentLen;

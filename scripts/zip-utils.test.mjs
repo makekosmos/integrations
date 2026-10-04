@@ -14,9 +14,11 @@ const CDFH_SIG = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
 function writeDeflateZip(file, name, payload, declaredUncomp) {
   const compressed = zlib.deflateRawSync(payload);
   const nameBuf = Buffer.from(name, "utf8");
+  const crc = zlib.crc32(payload);
   const lfh = Buffer.alloc(30);
   lfh.writeUInt32LE(0x04034b50, 0);
   lfh.writeUInt16LE(8, 8);
+  lfh.writeUInt32LE(crc, 14);
   lfh.writeUInt32LE(compressed.length, 18);
   lfh.writeUInt32LE(declaredUncomp, 22);
   lfh.writeUInt16LE(nameBuf.length, 26);
@@ -24,6 +26,7 @@ function writeDeflateZip(file, name, payload, declaredUncomp) {
   const cdfh = Buffer.alloc(46);
   cdfh.writeUInt32LE(0x02014b50, 0);
   cdfh.writeUInt16LE(8, 10);
+  cdfh.writeUInt32LE(crc, 16);
   cdfh.writeUInt32LE(compressed.length, 20);
   cdfh.writeUInt32LE(declaredUncomp, 24);
   cdfh.writeUInt16LE(nameBuf.length, 28);
@@ -224,6 +227,41 @@ test("writeZip is byte-identical across runs", async () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
     writeZip(second, entries);
     assert.deepEqual(await readFile(first), await readFile(second));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("readZip rejects a payload whose bytes no longer match the central CRC", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "zip-utils-"));
+  try {
+    const file = path.join(dir, "crc.zip");
+    writeZip(file, [{ name: "a.txt", data: Buffer.from("abcd") }]);
+    const bytes = Buffer.from(await readFile(file));
+    // Flip a payload byte; every size and offset field stays consistent, so
+    // only the CRC32 can catch the corruption.
+    bytes[30 + "a.txt".length] = 0x58;
+    await writeFile(file, bytes);
+    assert.throws(() => readZip(file), /crc mismatch/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("readZip rejects a deflate payload that decodes to different bytes than the CRC declares", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "zip-utils-"));
+  try {
+    const file = path.join(dir, "crc-deflate.zip");
+    // Declared sizes are honest, but the central CRC belongs to another
+    // payload entirely.
+    const payload = Buffer.from("deflate me ".repeat(8));
+    await writeDeflateZip(file, "a.txt", payload, payload.length);
+    const bytes = Buffer.from(await readFile(file));
+    const cd = bytes.indexOf(CDFH_SIG);
+    assert.notEqual(cd, -1);
+    bytes.writeUInt32LE(0xdeadbeef, cd + 16);
+    await writeFile(file, bytes);
+    assert.throws(() => readZip(file), /crc mismatch/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
