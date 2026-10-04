@@ -5,3 +5,4 @@ target/
 research/
 *.kspkg
 artifacts/
+out/

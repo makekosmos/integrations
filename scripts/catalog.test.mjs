@@ -140,23 +140,26 @@ test("catalog build runs end to end against stub packages.json", async () => {
       packagesFile,
       JSON.stringify({
         schema_version: 1,
-        packages: [
-          {
+        packages: real.targets.flatMap((target) =>
+          target.os.flatMap((os) => target.arch.map((arch) => ({
             manifest: real,
-            os: "windows",
-            arch: "x86_64",
-            url: `https://github.com/makekosmos/integrations/releases/download/catalog-7/${real.id}-${real.version}-windows-x86_64.kspkg`,
+            os,
+            arch,
+            url: `https://github.com/makekosmos/integrations/releases/download/catalog-7/${real.id}-${real.version}-${os}-${arch}.kspkg`,
             sha256: artifactSha256,
             size: artifactBytes.length,
-            artifact: `${real.id}-${real.version}-windows-x86_64.kspkg`,
-          },
-        ],
+            artifact: `${real.id}-${real.version}-${os}-${arch}.kspkg`,
+          }))),
+        ),
       }),
     );
-    await writeFile(
-      path.join(dir, `${real.id}-${real.version}-windows-x86_64.kspkg`),
-      artifactBytes,
-    );
+    for (const target of real.targets) {
+      for (const os of target.os) {
+        for (const arch of target.arch) {
+          await writeFile(path.join(dir, `${real.id}-${real.version}-${os}-${arch}.kspkg`), artifactBytes);
+        }
+      }
+    }
     execFileSync(process.execPath, [
       path.join(root, "scripts", "build-catalog.mjs"),
       "--packages",
@@ -175,6 +178,9 @@ test("catalog build runs end to end against stub packages.json", async () => {
     const catalog = JSON.parse(await readFile(path.join(out, "catalog.json"), "utf8"));
     assert.equal(catalog.sequence, 7);
     assert.equal(catalog.packages.length, 1);
+    assert.deepEqual(catalog.packages[0].archives.map((a) => `${a.os}/${a.arch}`), [
+      "macos/arm64", "windows/x86_64",
+    ]);
     assert.equal(catalog.external_apps.length, 7);
     assert.deepEqual(catalog.revoked, []);
     const sums = await readFile(path.join(out, "SHA256SUMS.txt"), "utf8");
@@ -275,6 +281,8 @@ test("catalog build fails when artifact bytes do not match declared sha256/size"
     const real = JSON.parse(
       await readFile(path.join(root, "packages", "leetcode", "manifest.json"), "utf8"),
     );
+    // This test isolates byte verification, not missing-platform validation.
+    real.targets = [{ runtime: "worker", os: ["windows"], arch: ["x86_64"] }];
     const artifact = `${real.id}-${real.version}-windows-x86_64.kspkg`;
     const packagesFile = path.join(dir, "packages.json");
     const out = path.join(dir, "out");

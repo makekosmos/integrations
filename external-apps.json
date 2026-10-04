@@ -8,7 +8,7 @@
       "publisher_tier": "verified",
       "description": "Платформа задач по JavaScript и веб-разработке.",
       "categories": ["education", "coding"],
-      "platforms": ["windows"],
+      "platforms": ["windows", "macos"],
       "official_url": "https://bigfrontend.dev",
       "icon_url": null,
       "data_compatibility": []
@@ -20,7 +20,7 @@
       "publisher_tier": "verified",
       "description": "Платформа для подготовки к собеседованиям по frontend-разработке.",
       "categories": ["education", "coding"],
-      "platforms": ["windows"],
+      "platforms": ["windows", "macos"],
       "official_url": "https://www.greatfrontend.com",
       "icon_url": null,
       "data_compatibility": []
@@ -32,7 +32,7 @@
       "publisher_tier": "verified",
       "description": "Платформа задач и подготовки к техническим собеседованиям.",
       "categories": ["education", "coding"],
-      "platforms": ["windows"],
+      "platforms": ["windows", "macos"],
       "official_url": "https://leetcode.com",
       "icon_url": null,
       "data_compatibility": []
@@ -44,7 +44,7 @@
       "publisher_tier": "verified",
       "description": "Платформа практики программирования через kata.",
       "categories": ["education", "coding"],
-      "platforms": ["windows"],
+      "platforms": ["windows", "macos"],
       "official_url": "https://www.codewars.com",
       "icon_url": null,
       "data_compatibility": []
@@ -56,7 +56,7 @@
       "publisher_tier": "verified",
       "description": "Трекер тренировок и силовых упражнений.",
       "categories": ["health", "fitness"],
-      "platforms": ["windows"],
+      "platforms": ["windows", "macos"],
       "official_url": "https://www.hevyapp.com",
       "icon_url": null,
       "data_compatibility": []
@@ -68,7 +68,7 @@
       "publisher_tier": "verified",
       "description": "Трекер времени и учета рабочих часов.",
       "categories": ["productivity", "time-tracking"],
-      "platforms": ["windows"],
+      "platforms": ["windows", "macos"],
       "official_url": "https://toggl.com/track",
       "icon_url": null,
       "data_compatibility": []
