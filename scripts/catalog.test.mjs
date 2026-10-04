@@ -238,6 +238,37 @@ test("manifest id charset is restricted to artifact-safe characters", async () =
   }
 });
 
+test("network scopes are HTTPS-only on bridges too, not only sources", async () => {
+  const { validateManifest, validateExternalApps } = await import("./manifest-schema.mjs");
+  const externalIds = validateExternalApps(
+    JSON.parse(await readFile(path.join(root, "external-apps.json"), "utf8")),
+  );
+  const bridge = manifest("ark-markdown-bridge");
+  bridge.kind = "bridge";
+  delete bridge.integration;
+  bridge.permissions = [
+    { capability: "ark.write", scopes: ["upsert_object"] },
+    { capability: "network", scopes: ["http://insecure.example/"] },
+  ];
+  assert.throws(() => validateManifest(bridge, { externalIds }), /invalid network scope/);
+  bridge.permissions[1].scopes = ["https://example.com/"];
+  validateManifest(bridge, { externalIds });
+});
+
+test("build-packages --validate-only runs without a build target", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "validate-only-"));
+  try {
+    execFileSync(process.execPath, [
+      path.join(root, "scripts", "build-packages.mjs"),
+      "--out",
+      dir,
+      "--validate-only",
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("catalog build fails when artifact bytes do not match declared sha256/size", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "catalog-test-"));
   try {

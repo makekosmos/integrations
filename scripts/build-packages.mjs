@@ -109,8 +109,10 @@ async function buildPackage(
   const manifestBytes = await readFile(manifestPath).catch(() => fail(`${dir}: manifest.json is missing`));
   const manifest = JSON.parse(manifestBytes);
   validateManifest(manifest, { packageDir, externalIds });
-  const archiveName = `${manifest.id}-${manifest.version}-${platform.os}-${platform.arch}.kspkg`;
-  if (!declaresPlatform(manifest, platform)) {
+  const archiveName = platform
+    ? `${manifest.id}-${manifest.version}-${platform.os}-${platform.arch}.kspkg`
+    : undefined;
+  if (platform && !declaresPlatform(manifest, platform)) {
     fail(`${dir}: manifest targets do not declare ${platform.os}/${platform.arch}`);
   }
   if (validateOnly) return { manifest, artifact: archiveName };
@@ -120,7 +122,10 @@ async function buildPackage(
   await mkdir(stage, { recursive: true });
   const binary = manifest.entrypoint.slice(0, -4);
   runCargo(path.join(packageDir, "Cargo.toml"), binary, targetDir, target, repoRoot);
-  const executable = path.join(targetDir, target, "release", manifest.entrypoint);
+  // Cargo appends .exe only for Windows targets; the macOS/Linux output is
+  // the bare binary name. The archive entry keeps manifest.entrypoint.
+  const builtName = target.endsWith("-windows-msvc") ? manifest.entrypoint : binary;
+  const executable = path.join(targetDir, target, "release", builtName);
   const info = await stat(executable).catch(() => null);
   if (!info?.isFile() || info.size === 0) fail(`${dir}: built worker is missing: ${executable}`);
   const archive = path.join(out, archiveName);
@@ -153,9 +158,13 @@ async function main() {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const out = path.resolve(args.out);
   const sequence = args.sequence ?? "0";
-  const target = args.target ?? defaultTarget();
-  const platform = TARGET_PLATFORMS.get(target);
-  if (!platform) fail(`unknown --target ${target} (no catalog platform mapping)`);
+  // --validate-only compiles nothing, so it must not demand a host default
+  // target; a platform is only resolved when a build will actually run.
+  const target = args.target ?? (args.validateOnly ? undefined : defaultTarget());
+  const platform = target === undefined ? undefined : TARGET_PLATFORMS.get(target);
+  if (target !== undefined && !platform) {
+    fail(`unknown --target ${target} (no catalog platform mapping)`);
+  }
   await mkdir(out, { recursive: true });
   const external = JSON.parse(await readFile(path.join(repoRoot, "external-apps.json"), "utf8"));
   const externalIds = validateExternalApps(external);
@@ -164,6 +173,7 @@ async function main() {
     .map((entry) => entry.name)
     .sort();
   const packages = [];
+  const ids = new Set();
   for (const dir of dirs) {
     const built = await buildPackage(
       repoRoot,
@@ -175,6 +185,11 @@ async function main() {
       platform,
       args.validateOnly,
     );
+    // Two directories claiming one manifest id would race on the same
+    // deterministic artifact name — the second write silently replaces the
+    // first, so refuse before the archive is produced.
+    if (ids.has(built.manifest.id)) fail(`${dir}: duplicate package id ${built.manifest.id}`);
+    ids.add(built.manifest.id);
     packages.push(built);
     if (!args.validateOnly) console.log(`${dir}: ${built.sha256} ${built.size}`);
   }
