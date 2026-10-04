@@ -17,6 +17,10 @@ const PLATFORMS = new Set(["windows", "macos", "linux", "ios", "android"]);
 const PUBLISHER_TIERS = new Set(["kosmos", "verified", "community"]);
 const SAFE_KEY = /^[a-z][a-z0-9_]{0,63}$/;
 const SAFE_CATEGORY = /^[a-z][a-z0-9-]{0,63}$/;
+// The id is embedded in `.kspkg` artifact names, `icon-<id>.png` assets and
+// release URLs — path separators, whitespace or case would break those
+// consumers or escape the output directory.
+const SAFE_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 export function fail(message) {
   throw new Error(message);
@@ -108,8 +112,7 @@ export function validateManifest(manifest, { packageDir, externalIds = new Set()
     !object(manifest) ||
     manifest.schema_version !== 2 ||
     typeof manifest.id !== "string" ||
-    !manifest.id ||
-    manifest.id.length > 64 ||
+    !SAFE_ID.test(manifest.id) ||
     typeof manifest.version !== "string" ||
     !/^\d+\.\d+\.\d+$/.test(manifest.version) ||
     !KINDS.has(manifest.kind) ||

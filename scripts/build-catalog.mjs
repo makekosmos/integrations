@@ -95,6 +95,13 @@ export function buildCatalog({ packages, externalApps, sequence, issuedAt, expir
     if (!validSha256(row.sha256) || !Number.isSafeInteger(row.size) || row.size <= 0) {
       fail(`${key}: invalid sha256/size`);
     }
+    // The artifact name is deterministic — build-packages emits exactly
+    // <id>-<version>-<os>-<arch>.kspkg. Anything else would smuggle a path
+    // into the SHA256SUMS lookup (or a newline into the sums file itself).
+    const expectedArtifact = `${id}-${version}-${row.os}-${row.arch}.kspkg`;
+    if (row.artifact !== expectedArtifact) {
+      fail(`${key}: artifact must be ${expectedArtifact}`);
+    }
     if (typeof row.url !== "string" || new URL(row.url).protocol !== "https:") {
       fail(`${key}: archive url must be HTTPS`);
     }
@@ -197,7 +204,12 @@ async function main() {
       if (bytes) break;
     }
     if (!bytes) fail(`${name}: built artifact not found next to any packages.json`);
-    sums.push(`${hash(bytes)}  ${name}`);
+    // The catalog pins the declared hash/size; if the artifact on disk does
+    // not match them, the release would ship a catalog no Engine can verify.
+    if (hash(bytes) !== row.sha256 || bytes.length !== row.size) {
+      fail(`${name}: artifact bytes do not match declared sha256/size`);
+    }
+    sums.push(`${row.sha256}  ${name}`);
   }
   for (const name of iconAssets.sort()) {
     const bytes = await readFile(path.join(out, name));
@@ -213,7 +225,9 @@ async function findIcon(repoRoot, id) {
   for (const dir of dirs.filter((entry) => entry.isDirectory())) {
     const manifestPath = path.join(repoRoot, "packages", dir.name, "manifest.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-    if (manifest.id === id) return path.join(repoRoot, "packages", dir.name, manifest.icon);
+    // The schema fixes the icon at "icon.png"; this on-disk manifest is read
+    // only to map id -> directory, so its icon field is not trusted.
+    if (manifest.id === id) return path.join(repoRoot, "packages", dir.name, "icon.png");
   }
   fail(`${id}: no package directory provides this manifest id`);
 }
