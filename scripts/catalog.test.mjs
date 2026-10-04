@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -132,6 +133,9 @@ test("catalog build runs end to end against stub packages.json", async () => {
     const packagesFile = path.join(dir, "packages.json");
     const out = path.join(dir, "out");
     await mkdir(out, { recursive: true });
+    // The artifact lives next to its packages.json, as a platform leg emits it.
+    const artifactBytes = Buffer.from("bytes");
+    const artifactSha256 = createHash("sha256").update(artifactBytes).digest("hex");
     await writeFile(
       packagesFile,
       JSON.stringify({
@@ -142,17 +146,16 @@ test("catalog build runs end to end against stub packages.json", async () => {
             os: "windows",
             arch: "x86_64",
             url: `https://github.com/makekosmos/integrations/releases/download/catalog-7/${real.id}-${real.version}-windows-x86_64.kspkg`,
-            sha256: "c".repeat(64),
-            size: 5,
+            sha256: artifactSha256,
+            size: artifactBytes.length,
             artifact: `${real.id}-${real.version}-windows-x86_64.kspkg`,
           },
         ],
       }),
     );
-    // The artifact lives next to its packages.json, as a platform leg emits it.
     await writeFile(
       path.join(dir, `${real.id}-${real.version}-windows-x86_64.kspkg`),
-      "bytes",
+      artifactBytes,
     );
     execFileSync(process.execPath, [
       path.join(root, "scripts", "build-catalog.mjs"),
@@ -203,6 +206,82 @@ test("buildCatalog merges per-platform rows into one archives[] entry", () => {
     catalog.packages[0].archives.map((item) => `${item.os}/${item.arch}`),
     ["windows/arm64", "windows/x86_64"],
   );
+});
+
+test("buildCatalog rejects artifact names that are not the deterministic kspkg name", () => {
+  for (const artifact of ["../catalog.json", "a\nb.kspkg", "real.kspkg", undefined]) {
+    const bad = { ...entry("com.kosmos.a"), artifact };
+    assert.throws(
+      () =>
+        buildCatalog({
+          packages: [bad],
+          externalApps: [],
+          sequence: 1,
+          issuedAt: "2026-01-01T00:00:00Z",
+          expiresAt: "2027-01-01T00:00:00Z",
+        }),
+      /artifact must be/,
+    );
+  }
+});
+
+test("manifest id charset is restricted to artifact-safe characters", async () => {
+  const { validateManifest } = await import("./manifest-schema.mjs");
+  for (const id of ["../escape", "a/b", "a\\b", "bad id", "UPPER", ".hidden", "-lead"]) {
+    const bad = manifest("com.kosmos.a");
+    bad.id = id;
+    assert.throws(() => validateManifest(bad, {}), /invalid manifest identity/);
+  }
+  for (const id of ["a", "ark-markdown-bridge", "com.kosmos.huawei-health"]) {
+    const good = manifest(id);
+    validateManifest(good, {});
+  }
+});
+
+test("catalog build fails when artifact bytes do not match declared sha256/size", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "catalog-test-"));
+  try {
+    const real = JSON.parse(
+      await readFile(path.join(root, "packages", "leetcode", "manifest.json"), "utf8"),
+    );
+    const artifact = `${real.id}-${real.version}-windows-x86_64.kspkg`;
+    const packagesFile = path.join(dir, "packages.json");
+    const out = path.join(dir, "out");
+    await mkdir(out, { recursive: true });
+    await writeFile(
+      packagesFile,
+      JSON.stringify({
+        schema_version: 1,
+        packages: [
+          {
+            manifest: real,
+            os: "windows",
+            arch: "x86_64",
+            url: `https://github.com/makekosmos/integrations/releases/download/catalog-7/${artifact}`,
+            sha256: "c".repeat(64),
+            size: 5,
+            artifact,
+          },
+        ],
+      }),
+    );
+    await writeFile(path.join(dir, artifact), "bytes");
+    assert.throws(() =>
+      execFileSync(process.execPath, [
+        path.join(root, "scripts", "build-catalog.mjs"),
+        "--packages",
+        packagesFile,
+        "--external-apps",
+        path.join(root, "external-apps.json"),
+        "--sequence",
+        "7",
+        "--out",
+        out,
+      ]),
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("buildCatalog rejects undeclared or unbuilt platforms", () => {
