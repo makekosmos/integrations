@@ -40,7 +40,15 @@ jobs:
           if ($seq -and $seq -notmatch '^\d+$') { Write-Error "sequence must be digits"; exit 1 }
           if (-not $seq) {
             $prev = gh api repos/makekosmos/integrations/releases/latest --jq '.tag_name' 2>$null
-            if ($prev -match '^catalog-(\d+)$') { $seq = [int]$Matches[1] + 1 } else { $seq = 1 }
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "could not resolve releases/latest; pass the sequence input explicitly"
+              exit 1
+            }
+            if ($prev -notmatch '^catalog-(\d+)$') {
+              Write-Error "latest release '$prev' is not a catalog-N tag; releases/latest invariant is broken — pass the sequence input explicitly"
+              exit 1
+            }
+            $seq = [int]$Matches[1] + 1
           }
           "seq=$seq" >> "$env:GITHUB_OUTPUT"
         shell: pwsh
