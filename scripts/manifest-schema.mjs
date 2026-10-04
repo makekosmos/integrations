@@ -38,9 +38,13 @@ function httpsUrl(value) {
   }
 }
 
-export function networkOrigins(manifest, label) {
+export function networkOrigins(manifest, label, { required } = {}) {
   const network = manifest.permissions.find((item) => item?.capability === "network");
-  if (!Array.isArray(network?.scopes) || network.scopes.length === 0) {
+  if (!network) {
+    if (required) fail(`${label}: HTTPS network permission is required`);
+    return new Set();
+  }
+  if (!Array.isArray(network.scopes) || network.scopes.length === 0) {
     fail(`${label}: HTTPS network permission is required`);
   }
   return new Set(
@@ -139,8 +143,9 @@ export function validateManifest(manifest, { packageDir, externalIds = new Set()
     capabilities.add(capability);
   }
   // Source workers phone home to a service API — an HTTPS network permission
-  // is mandatory there; bridges sync local files and legitimately have none.
-  const origins = manifest.kind === "source" ? networkOrigins(manifest, label) : new Set();
+  // is mandatory there; bridges sync local files and legitimately have none,
+  // but a bridge that does declare one is held to the same HTTPS-only rule.
+  const origins = networkOrigins(manifest, label, { required: manifest.kind === "source" });
   const ark = manifest.permissions.find((item) => item?.capability === "ark.write");
   if (
     !Array.isArray(ark?.scopes) ||
