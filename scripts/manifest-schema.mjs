@@ -14,6 +14,12 @@ const SECRET_SETTING_KINDS = new Set(["api_key", "token", "secret"]);
 const ROLES = new Set(["read", "edit", "import", "export", "sync"]);
 const FIDELITIES = new Set(["native", "lossless", "lossy", "metadata-only"]);
 const PLATFORMS = new Set(["windows", "macos", "linux", "ios", "android"]);
+// A worker is a compiled desktop binary: these are the only (os, arch) values
+// the build pipeline can produce, so declaring anything else would either
+// ship a catalog entry no archive can satisfy or exempt a platform via the
+// `os/*` coverage rule in build-catalog.
+const WORKER_OS = new Set(["windows", "macos", "linux"]);
+const WORKER_ARCH = new Set(["x86_64", "arm64"]);
 const PUBLISHER_TIERS = new Set(["kosmos", "verified", "community"]);
 const SAFE_KEY = /^[a-z][a-z0-9_]{0,63}$/;
 const SAFE_CATEGORY = /^[a-z][a-z0-9-]{0,63}$/;
@@ -236,14 +242,25 @@ export function validateManifest(manifest, { packageDir, externalIds = new Set()
       fail(`${label}: integration schedule is required`);
     }
   }
-  if (
-    !Array.isArray(manifest.targets) ||
-    !manifest.targets.some(
-      (item) => item?.runtime === "worker" && Array.isArray(item.os) && item.os.includes("windows"),
-    )
-  ) {
-    fail(`${label}: Windows worker target is required`);
+  if (!Array.isArray(manifest.targets)) fail(`${label}: invalid targets`);
+  let windowsWorker = false;
+  for (const target of manifest.targets) {
+    if (
+      !object(target) ||
+      target.runtime !== "worker" ||
+      !Array.isArray(target.os) ||
+      target.os.length === 0 ||
+      target.os.some((os) => !WORKER_OS.has(os)) ||
+      (target.arch !== undefined &&
+        (!Array.isArray(target.arch) ||
+          target.arch.length === 0 ||
+          target.arch.some((arch) => !WORKER_ARCH.has(arch))))
+    ) {
+      fail(`${label}: invalid worker target`);
+    }
+    if (target.os.includes("windows")) windowsWorker = true;
   }
+  if (!windowsWorker) fail(`${label}: Windows worker target is required`);
   validateStore(manifest.store, manifest, externalIds, label);
   if (packageDir) {
     for (const file of ["Cargo.toml", manifest.icon]) {

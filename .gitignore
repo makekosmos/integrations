@@ -4,3 +4,4 @@ release/
 target/
 research/
 *.kspkg
+artifacts/
