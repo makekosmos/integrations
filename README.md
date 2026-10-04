@@ -62,12 +62,10 @@ node scripts/build-packages.mjs --out out/macos-arm64 --sequence 2 --target aarc
 
 These are native Mach-O workers, despite the shared `.exe` archive entry name.
 Intel macOS is not declared until its artifacts have been built and tested.
-Do not publish these targets yet: Cortex's worker supervisor still rejects
-non-Windows launches with `unsupported-platform`. The Engine needs a macOS
-worker lifecycle implementation, not merely executable permissions. Before
-publishing, bump the changed package versions and build both Windows and macOS
-legs from identical manifests; a macOS-only `packages.json` intentionally
-fails the catalog's missing-platform check.
+The Cortex checkout now has a macOS supervisor path, but these targets are
+still not published. Before publishing, bump the changed package versions and
+build both Windows and macOS legs from identical manifests; a macOS-only
+`packages.json` intentionally fails the catalog's missing-platform check.
 
 ## Publish
 
